@@ -9,12 +9,19 @@ app.use(cors());
 
 const UserController = require("./controller/UserController");
 const foodTypeController = require("./controller/FoodTypeControllert");
+const foodSizeController = require('./controller/FoodSizeController')
 
+//foodsize
+app.post('/api/foodSize/create',(req,res) => foodSizeController.create(req,res));
+app.get('/api/foodSize/list',(req,res) => foodSizeController.list(req,res));
+app.delete('/api/foodSize/remove/:id',(req,res) => foodSizeController.remove(req,res));
+app.put("/api/foodSize/update", (req, res) => foodSizeController.update(req, res));
 //foodtype
 
 app.post("/api/foodtype/create", (req, res) => foodTypeController.create(req, res));
 app.get("/api/foodType/list", (req, res) => foodTypeController.list(req, res));
 app.put("/api/foodtype/update", (req, res) => foodTypeController.update(req, res));
+
 //remove
 app.delete("/api/foodtype/remove/:id",(req,res) => foodTypeController.remove(req,res));
 
