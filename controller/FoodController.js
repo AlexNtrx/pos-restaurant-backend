@@ -5,8 +5,8 @@ const prisma = new PrismaClient();
 module.exports = {
   upload: async (req, res) => {
     try {
- if (req.files && req.files.file) {
-    const myFile = req.files.file;
+      if (req.files && req.files.file) {
+        const myFile = req.files.file;
 
         const fileName = myFile.name;
         const fileExtension = fileName.split(".").pop();
@@ -115,6 +115,26 @@ module.exports = {
       return res.send({ message: "success" });
     } catch (e) {
       return res.status(500).send({ error: e.message });
+    }
+  },
+  filter: async (req, res) => {
+    try {
+      let condition = {
+        status: "use",
+      };
+      if (req.paramss.foodType != "all") {
+        condition.foodType = req.params.foodType;
+      }
+      const foods = await prisma.food.findMany({
+        where: {
+          condition,
+          orderBy: {
+            id: "desc",
+          },
+        },
+      });
+    } catch (e) {
+      return res.send(500).send({ error: e.message });
     }
   },
 };

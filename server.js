@@ -15,8 +15,18 @@ const foodTypeController = require("./controller/FoodTypeControllert");
 const foodSizeController = require("./controller/FoodSizeController");
 const TasteController = require("./controller/TasteController");
 const FoodController = require("./controller/FoodController");
+const SaleTempController = require("./controller/SaleTempController");
+
+//saleTemp
+app.get("/api/saleTemp/list", (req, res) => SaleTempController.list(req, res));
+app.post("/api/saleTemp/create", (req, res) =>
+  SaleTempController.create(req, res),
+);
 
 //food
+app.get("/api/food/filter/:foodType", (req, res) =>
+  FoodController.filter(req, res),
+);
 app.post("/api/food/upload", (req, res) => FoodController.upload(req, res));
 app.post("/api/food/create", (req, res) => FoodController.create(req, res));
 app.get("/api/food/list", (req, res) => FoodController.list(req, res));
