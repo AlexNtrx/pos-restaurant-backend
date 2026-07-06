@@ -62,14 +62,18 @@ model Food {
   foodTypeId      Int
   foodType        String           @default("food")
   FoodType        FoodType         @relation(fields: [foodTypeId], references: [id])
-  saleTempDetails SaleTempDetail[]
+  SaleTempDetails SaleTempDetail[]
+  SaleTemps       SaleTemp[]
 }
 
 model SaleTemp {
   id              Int              @id() @default(autoincrement())
   userId          Int
-  tableNo         String
+  tableNo         Int
+  foodId          Int?
+  qty             Int?
   saleTempDetails SaleTempDetail[]
+  Food            Food?             @relation(fields: [foodId], references: [id])
 }
 
 model SaleTempDetail {

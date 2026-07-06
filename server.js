@@ -18,7 +18,22 @@ const FoodController = require("./controller/FoodController");
 const SaleTempController = require("./controller/SaleTempController");
 
 //saleTemp
-app.get("/api/saleTemp/list", (req, res) => SaleTempController.list(req, res));
+app.get("/api/saleTemp/info/:id", (req, res) =>
+  SaleTempController.info(req,res),
+);
+app.post("/api/saleTemp/generateSaleTempDetail", (req, res) =>
+  SaleTempController.generateSaleTempDetail(req, res),
+);
+app.put("/api/saleTemp/updateQty", (req, res) =>
+  SaleTempController.updateQty(req, res),
+);
+app.delete("/api/saleTemp/removeAll", (req, res) =>
+  SaleTempController.removeAll(req, res),
+);
+app.delete("/api/saleTemp/remove/:id", (req, res) =>
+  SaleTempController.remove(req, res),
+);
+app.get("/api/saleTemp/list/", (req, res) => SaleTempController.list(req, res));
 app.post("/api/saleTemp/create", (req, res) =>
   SaleTempController.create(req, res),
 );
