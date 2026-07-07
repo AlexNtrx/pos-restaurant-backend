@@ -153,21 +153,21 @@ module.exports = {
       return res.status(500).send({ error: e.message });
     }
   },
-info: async (req, res) => {
+  info: async (req, res) => {
     try {
-      const saleTemp = await prisma.saleTemp.findFirst({   // ✅ เปลี่ยนจาก saleTempDetail → saleTemp
+      const saleTemp = await prisma.saleTemp.findFirst({
         where: {
-          id: parseInt(req.params.id),                      // ✅ เปลี่ยนจาก saleTempId → id
+          id: parseInt(req.params.id),
         },
         include: {
           Food: {
             include: {
               FoodType: {
                 include: {
-                  tastes: {                                 // ✅ lowercase
-                    where: { status: "use" },                // ✅ string ไม่ใช่ boolean
+                  tastes: {
+                    where: { status: "use" },
                   },
-                  foodSizes: {                               // ✅ lowercase
+                  foodSizes: {
                     where: { status: "use" },
                     orderBy: { moneyAdded: "asc" },
                   },
@@ -186,7 +186,52 @@ info: async (req, res) => {
         return res.status(404).send({ error: "SaleTemp not found" });
       }
 
-      return res.send({ results: saleTemp });               // ✅ ตัวแปรตรงกับที่ query ได้จริง
+      return res.send({ results: saleTemp });
+    } catch (e) {
+      return res.status(500).send({ error: e.message });
+    }
+  },
+  selectTaste: async (req, res) => {
+    try {
+      await prisma.saleTempDetail.update({
+        where: {
+          id: req.body.saleTempDetailId,
+        },
+        data: {
+          tasteId: req.body.tasteId,
+        },
+      });
+      return res.send({ message: "success" });
+    } catch (e) {
+      return res.status(500).send({ error: e.message });
+    }
+  },
+  unSelectTaste: async (req, res) => {
+    try {
+      await prisma.saleTempDetail.update({
+        where: {
+          id: req.body.saleTempDetailId,
+        },
+        data: {
+          tasteId: null,
+        },
+      });
+      return res.send({ message: "success" });
+    } catch (e) {
+      return res.status(500).send({ error: e.message });
+    }
+  },
+  selectSize: async (req, res) => {
+    try {
+      await prisma.saleTempDetail.update({
+        where: {
+          id: req.body.saleTempDetailId,
+        },
+        data: {
+          foodSizeId: req.body.sizeId,
+        },
+      });
+      return res.send({ message: "success" });
     } catch (e) {
       return res.status(500).send({ error: e.message });
     }

@@ -18,8 +18,17 @@ const FoodController = require("./controller/FoodController");
 const SaleTempController = require("./controller/SaleTempController");
 
 //saleTemp
+app.put("/api/saleTemp/selectSize", (req, res) =>
+  SaleTempController.selectSize(req, res),
+);
+app.put("/api/saleTemp/UnSelectTaste", (req, res) =>
+  SaleTempController.unSelectTaste(req, res),
+);
+app.put("/api/saleTemp/selectTaste", (req, res) =>
+  SaleTempController.selectTaste(req, res),
+);
 app.get("/api/saleTemp/info/:id", (req, res) =>
-  SaleTempController.info(req,res),
+  SaleTempController.info(req, res),
 );
 app.post("/api/saleTemp/generateSaleTempDetail", (req, res) =>
   SaleTempController.generateSaleTempDetail(req, res),
