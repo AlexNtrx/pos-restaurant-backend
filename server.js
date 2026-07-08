@@ -18,6 +18,9 @@ const FoodController = require("./controller/FoodController");
 const SaleTempController = require("./controller/SaleTempController");
 
 //saleTemp
+app.post("/api/saleTemp/createSaleTempDetail", (req, res) =>
+  SaleTempController.createSaleTempDetail(req, res),
+);
 app.put("/api/saleTemp/selectSize", (req, res) =>
   SaleTempController.selectSize(req, res),
 );

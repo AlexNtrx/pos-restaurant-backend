@@ -1,4 +1,5 @@
 const { PrismaClient } = require("@prisma/client");
+const { count } = require("node:console");
 const prisma = new PrismaClient();
 
 module.exports = {
@@ -61,12 +62,17 @@ module.exports = {
   },
   remove: async (req, res) => {
     try {
-      await prisma.saleTemp.delete({
+      const saleTempId = parseInt(req.params.id);
+      await prisma.saleTempDetail.deleteMany({
         where: {
-          id: Number(req.params.id),
+          saleTempId:saleTempId
         },
       });
-
+      await prisma.saleTemp.delete({
+        where:{
+          id:saleTempId
+        }
+      })
       return res.send({ message: "success" });
     } catch (e) {
       return res.status(500).send({ error: e.message });
@@ -96,30 +102,58 @@ module.exports = {
       return res.status(500).send({ error: e.message });
     }
   },
-  updateQty: async (req, res) => {
-    try {
-      const qty = Number(req.body.qty);
+updateQty: async (req, res) => {
+  try {
+    const qty = Number(req.body.qty);
+    const id = Number(req.body.id);
 
-      if (!Number.isInteger(qty) || qty < 1) {
-        return res
-          .status(400)
-          .send({ error: "qty ต้องเป็นจำนวนเต็มและมากกว่าหรือเท่ากับ 1" });
-      }
-
-      await prisma.saleTemp.update({
-        where: {
-          id: Number(req.body.id),
-        },
-        data: {
-          qty: qty,
-        },
-      });
-      return res.send({ message: "success" });
-    } catch (e) {
-      return res.status(500).send({ error: e.message });
+    if (!Number.isInteger(qty) || qty < 1) {
+      return res
+        .status(400)
+        .send({ error: "qty ต้องเป็นจำนวนเต็มและมากกว่าหรือเท่ากับ 1" });
     }
-  },
 
+    // 1. อัปเดต qty ของตัวหลักก่อน
+    const updatedSaleTemp = await prisma.saleTemp.update({
+      where: { id: id },
+      data: { qty: qty },
+      include: { saleTempDetails: true } // ดึงรายการย่อยปัจจุบันมาเช็คด้วย
+    });
+
+    const currentDetailsCount = updatedSaleTemp.saleTempDetails.length;
+
+    // 2. ปรับจำนวนแถวใน saleTempDetail ให้เท่ากับ qty ใหม่
+    if (qty > currentDetailsCount) {
+      // ถ้า qty มากกว่าแถวที่มีอยู่ -> สร้างเพิ่มส่วนต่าง
+      const diff = qty - currentDetailsCount;
+      for (let i = 0; i < diff; i++) {
+        await prisma.saleTempDetail.create({
+          data: {
+            saleTempId: id,
+            foodId: updatedSaleTemp.foodId
+          }
+        });
+      }
+    } else if (qty < currentDetailsCount) {
+      // ถ้า qty น้อยกว่าแถวที่มีอยู่ (ตอนกดปุ่มลบ) -> ลบแถวเกินออกโดยเรียงจาก id ล่าสุด
+      const diff = currentDetailsCount - qty;
+      const detailsToDelete = await prisma.saleTempDetail.findMany({
+        where: { saleTempId: id },
+        orderBy: { id: "desc" },
+        take: diff
+      });
+      
+      const deleteIds = detailsToDelete.map(d => d.id);
+      await prisma.saleTempDetail.deleteMany({
+        where: { id: { in: deleteIds } }
+      });
+    }
+
+    return res.send({ message: "success" });
+  } catch (e) {
+    return res.status(500).send({ error: e.message });
+  }
+},
   generateSaleTempDetail: async (req, res) => {
     try {
       const id = parseInt(req.body.saleTempId);
@@ -176,7 +210,7 @@ module.exports = {
             },
           },
           saleTempDetails: {
-            include: { Food: true },
+            include: { Food: true, FoodSize: true },
             orderBy: { id: "asc" },
           },
         },
@@ -229,6 +263,38 @@ module.exports = {
         },
         data: {
           foodSizeId: req.body.sizeId,
+        },
+      });
+      return res.send({ message: "success" });
+    } catch (e) {
+      return res.status(500).send({ error: e.message });
+    }
+  },
+  createSaleTempDetail: async (req, res) => {
+    try {
+      const saleTempId = req.body.saleTempId;
+      const saleTempDetail = await prisma.saleTempDetail.findFirst({
+        where: {
+          saleTempId: saleTempId,
+        },
+      });
+      await prisma.saleTempDetail.create({
+        data: {
+          saleTempId: saleTempDetail.saleTempId,
+          foodId: saleTempDetail.foodId,
+        },
+      });
+      const countSaleTempDetail = await prisma.saleTempDetail.count({
+        where: {
+          saleTempId: saleTempId,
+        },
+      });
+      await prisma.saleTemp.update({
+        where: {
+          id: saleTempDetail.saleTempId,
+        },
+        data: {
+          qty: countSaleTempDetail,
         },
       });
       return res.send({ message: "success" });
