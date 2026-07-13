@@ -87,3 +87,14 @@ model SaleTempDetail {
   FoodSize   FoodSize? @relation(fields: [foodSizeId], references: [id])
   SaleTemp   SaleTemp  @relation(fields: [saleTempId], references: [id])
 }
+model Organization {
+id         Int       @id() @default(autoincrement())
+name String
+phone String
+address String
+email String
+website String
+bankNo String
+logo String
+taxCode String
+}

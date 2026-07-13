@@ -16,8 +16,24 @@ const foodSizeController = require("./controller/FoodSizeController");
 const TasteController = require("./controller/TasteController");
 const FoodController = require("./controller/FoodController");
 const SaleTempController = require("./controller/SaleTempController");
+const OrganizationController = require("./controller/OrganizationController");
+
+
+//organization
+app.post("/api/organization/upload",(req,res) => OrganizationController.upload(req,res));
+app.post("/api/organization/create", (req, res) =>
+  OrganizationController.create(req, res),
+);
+app.get("/api/organization/info", (req, res) =>
+  OrganizationController.info(req, res),
+);
+
+
 
 //saleTemp
+app.delete("/api/saleTemp/removeSaleTempDetailModal", (req, res) =>
+  SaleTempController.removeSaleTempDetailModal(req, res),
+);
 app.post("/api/saleTemp/createSaleTempDetail", (req, res) =>
   SaleTempController.createSaleTempDetail(req, res),
 );
