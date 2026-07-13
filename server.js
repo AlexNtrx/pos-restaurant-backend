@@ -18,9 +18,10 @@ const FoodController = require("./controller/FoodController");
 const SaleTempController = require("./controller/SaleTempController");
 const OrganizationController = require("./controller/OrganizationController");
 
-
 //organization
-app.post("/api/organization/upload",(req,res) => OrganizationController.upload(req,res));
+app.post("/api/organization/upload", (req, res) =>
+  OrganizationController.upload(req, res),
+);
 app.post("/api/organization/create", (req, res) =>
   OrganizationController.create(req, res),
 );
@@ -28,9 +29,16 @@ app.get("/api/organization/info", (req, res) =>
   OrganizationController.info(req, res),
 );
 
-
-
 //saleTemp
+app.post("/api/saleTemp/printBillAfterPay", (req, res) =>
+  SaleTempController.printBillAfterPay(req, res),
+);
+app.post("/api/saleTemp/endSale", (req, res) =>
+  SaleTempController.endSale(req, res),
+);
+app.post("/api/saleTemp/printBillBeforePay", (req, res) =>
+  SaleTempController.printBillBeforePay(req, res),
+);
 app.delete("/api/saleTemp/removeSaleTempDetailModal", (req, res) =>
   SaleTempController.removeSaleTempDetailModal(req, res),
 );

@@ -13,12 +13,13 @@ datasource db {
 }
 
 model User {
-  id       Int    @id() @default(autoincrement())
+  id       Int        @id() @default(autoincrement())
   name     String
   username String
   password String
-  level    String @default("admin")
-  status   String @default("use")
+  level    String     @default("admin")
+  status   String     @default("use")
+  BillSale BillSale[]
 }
 
 model FoodType {
@@ -64,6 +65,7 @@ model Food {
   FoodType        FoodType         @relation(fields: [foodTypeId], references: [id])
   SaleTempDetails SaleTempDetail[]
   SaleTemps       SaleTemp[]
+  BillSaleDetail  BillSaleDetail[]
 }
 
 model SaleTemp {
@@ -73,7 +75,7 @@ model SaleTemp {
   foodId          Int?
   qty             Int?
   saleTempDetails SaleTempDetail[]
-  Food            Food?             @relation(fields: [foodId], references: [id])
+  Food            Food?            @relation(fields: [foodId], references: [id])
 }
 
 model SaleTempDetail {
@@ -87,14 +89,42 @@ model SaleTempDetail {
   FoodSize   FoodSize? @relation(fields: [foodSizeId], references: [id])
   SaleTemp   SaleTemp  @relation(fields: [saleTempId], references: [id])
 }
+
 model Organization {
-id         Int       @id() @default(autoincrement())
-name String
-phone String
-address String
-email String
-website String
-bankNo String
-logo String
-taxCode String
+  id      Int    @id() @default(autoincrement())
+  name    String
+  phone   String
+  address String
+  email   String
+  website String
+  bankNo  String
+  logo    String
+  taxCode String
+}
+
+model BillSale {
+  id              Int              @id() @default(autoincrement())
+  createdDate     DateTime         @default(now())
+  amount          Int
+  payType         String
+  payDate         DateTime         @default(now())
+  userId          Int
+  inputMoney      Int
+  returnMoney     Int
+  tableNo         Int
+  status          String           @default("use")
+  User            User             @relation(fields: [userId], references: [id])
+  BillSaleDetails BillSaleDetail[]
+}
+
+model BillSaleDetail {
+  id         Int      @id() @default(autoincrement())
+  billSaleId Int
+  foodId     Int
+  foodSizeId Int?
+  tastedId   Int?
+  moneyAdded Int?
+  price      Int?
+  BillSale   BillSale @relation(fields: [billSaleId], references: [id])
+  Food       Food     @relation(fields: [foodId], references: [id])
 }
