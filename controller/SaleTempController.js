@@ -351,6 +351,7 @@ module.exports = {
           BillSaleDetails: {
             include: {
               Food: true,
+              FoodSize: true,
             },
           },
         },
@@ -426,22 +427,24 @@ module.exports = {
 
       billSaleDetails.map((item, index) => {
         const y = doc.y;
-        doc.text(item.Food.name, padding, y);
+        let name = item.Food.name;
+        if (item.foodSizeId != null) name += `${item.FoodSize.name} + ${item.FoodSize.moneyAdded}`;
+        doc.text(name, padding, y);
         doc.text(item.Food.price, padding + 18, y, {
           align: "right",
           width: 20,
         });
         doc.text(1, padding + 36, y, { align: "right", width: 20 });
-        doc.text(item.price * 1, padding + 55, y, {
+        doc.text(item.price +item.moneyAdded, padding + 55, y, {
           align: "right",
         });
       });
 
       let sumAmount = 0;
       billSaleDetails.forEach((item) => {
-        sumAmount += item.price * 1;
+        sumAmount += item.price +item.moneyAdded;
       });
-  
+
       doc.text(`total:${sumAmount}`, padding, doc.y, {
         align: "right",
         width: paperWidth - padding - padding,
@@ -570,6 +573,7 @@ module.exports = {
           saleTempDetails: {
             include: {
               Food: true,
+              FoodSize: true,
             },
           },
           Food: true,
@@ -601,8 +605,9 @@ module.exports = {
                 billSaleId: billSale.id,
                 foodId: detail.foodId,
                 tastedId: detail.tasteId,
-                moneyAdded: detail.moneyAdded,
+                moneyAdded: detail.FoodSize?.moneyAdded,
                 price: detail.Food.price,
+                foodSizeId: detail.foodSizeId,
               },
             });
           }

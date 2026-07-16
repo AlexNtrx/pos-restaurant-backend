@@ -17,6 +17,20 @@ const TasteController = require("./controller/TasteController");
 const FoodController = require("./controller/FoodController");
 const SaleTempController = require("./controller/SaleTempController");
 const OrganizationController = require("./controller/OrganizationController");
+const BillSaleController = require("./controller/BillSaleController");
+const ReportController = require("./controller/ReportController");
+
+
+
+//report
+app.post('/api/report/sumMonthly',(req,res) => ReportController.sumMonthly(req,res));
+app.post('/api/report/dailySales',(req,res) => ReportController.sumPerDayInYearAndMonth(req,res));
+
+//billSale
+app.post("/api/billSale/list", (req, res) => BillSaleController.list(req, res));
+app.delete("/api/billSale/remove/:id", (req, res) =>
+  BillSaleController.remove(req, res),
+);
 
 //organization
 app.post("/api/organization/upload", (req, res) =>
