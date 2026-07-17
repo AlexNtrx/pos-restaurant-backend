@@ -104,4 +104,11 @@ module.exports = {
       return res.status(500).send({ error: e.message });
     }
   },
+getLevelByToken: async (req, res) => {
+  try {
+    return res.send({ level: req.user.level });  
+  } catch (e) {
+    return res.status(500).send({ error: e.message });
+  }
+}
 };
