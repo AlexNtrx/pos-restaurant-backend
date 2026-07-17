@@ -20,11 +20,32 @@ const OrganizationController = require("./controller/OrganizationController");
 const BillSaleController = require("./controller/BillSaleController");
 const ReportController = require("./controller/ReportController");
 
+const jwt = require("jsonwebtoken");
+const dotenv = require("dotenv");
+dotenv.config();
 
+const isAuthen = (req, res, next) => {
+  if (req.headers.authorization) {
+    const token = req.headers.authorization.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.SECRET_KEY);
+
+    if (decoded) {
+      next();
+    } else {
+      res.status(401).send({ error: "Unauthorized" });
+    }
+  } else {
+    res.status(401).send({ error: "Unauthorized" });
+  }
+};
 
 //report
-app.post('/api/report/sumMonthly',(req,res) => ReportController.sumMonthly(req,res));
-app.post('/api/report/dailySales',(req,res) => ReportController.sumPerDayInYearAndMonth(req,res));
+app.post("/api/report/sumMonthly",isAuthen, (req, res) =>
+  ReportController.sumMonthly(req, res),
+);
+app.post("/api/report/dailySales",isAuthen, (req, res) =>
+  ReportController.sumPerDayInYearAndMonth(req, res),
+);
 
 //billSale
 app.post("/api/billSale/list", (req, res) => BillSaleController.list(req, res));
@@ -133,6 +154,12 @@ app.delete("/api/foodtype/remove/:id", (req, res) =>
 );
 
 //signIn
+app.get("/api/user/list", (req, res) => UserController.list(req, res));
+app.put("/api/user/update", (req, res) => UserController.update(req, res));
+app.delete("/api/user/remove/:id", (req, res) =>
+  UserController.remove(req, res),
+);
+app.post("/api/user/create", (req, res) => UserController.create(req, res));
 app.post("/api/user/signIn", (req, res) => UserController.signIn(req, res));
 
 app.listen(3001, () => {

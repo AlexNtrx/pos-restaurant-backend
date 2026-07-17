@@ -10,7 +10,7 @@ module.exports = {
 
       const sumPerDay = [];
       const startDate = dayjs(year + "-" + month + "-01");
-    const endDate = startDate.endOf("month").add(1, "day");
+      const endDate = startDate.endOf("month");
 
       for (let day = startDate.date(); day <= endDate.date(); day++) {
         const dateFrom = startDate.date(day).format("YYYY-MM-DD");
@@ -57,35 +57,34 @@ module.exports = {
         const endDate = startDate.endOf("month").add(1, "day");
 
         const billSales = await prisma.billSale.findMany({
-          where:{
-            createdDate :{
-              gte: new Date(startDate.format('YYYY-MM-DD')),
-              lte:new Date(endDate.format('YYYY-MM-DD'))
+          where: {
+            createdDate: {
+              gte: new Date(startDate.format("YYYY-MM-DD")),
+              lte: new Date(endDate.format("YYYY-MM-DD")),
             },
-            status:'use'
+            status: "use",
           },
-          include:{
-               BillSaleDetails: true,
-          }
-        })
+          include: {
+            BillSaleDetails: true,
+          },
+        });
         let sum = 0;
 
         for (let i = 0; i < billSales.length; i++) {
           const billSaleDetails = billSales[i].BillSaleDetails;
 
-           for (let j = 0; j < billSaleDetails.length; j++) {
-           sum += billSaleDetails[j].price + billSaleDetails[j].moneyAdded;
+          for (let j = 0; j < billSaleDetails.length; j++) {
+            sum += billSaleDetails[j].price + billSaleDetails[j].moneyAdded;
           }
         }
         sumMonthly.push({
-          month:startDate.format('MM'),
-          amount:sum
-        })
+          month: startDate.format("MM"),
+          amount: sum,
+        });
       }
-      return res.send({results:sumMonthly})
+      return res.send({ results: sumMonthly });
     } catch (e) {
       return res.status(500).send({ error: e.message });
     }
-},
-
-}
+  },
+};

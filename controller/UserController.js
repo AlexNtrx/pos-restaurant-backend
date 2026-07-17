@@ -2,6 +2,7 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
+const { update } = require("./FoodTypeControllert");
 dotenv.config();
 module.exports = {
   signIn: async (req, res) => {
@@ -29,6 +30,76 @@ module.exports = {
       } else {
         return res.status(401).send();
       }
+    } catch (e) {
+      return res.status(500).send({ error: e.message });
+    }
+  },
+  create: async (req, res) => {
+    try {
+      await prisma.user.create({
+        data: {
+          name: req.body.name,
+          username: req.body.username,
+          password: req.body.password,
+          level: req.body.level,
+        },
+      });
+      return res.send({ message: "success" });
+    } catch (e) {
+      return res.status(500).send({ error: e.message });
+    }
+  },
+  list: async (req, res) => {
+    try {
+      const users = await prisma.user.findMany({
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          level: true,
+          password: true,
+        },
+        where: {
+          status: "use",
+        },
+        orderBy: {
+          id: "asc",
+        },
+      });
+      return res.send({ results: users });
+    } catch (e) {
+      return res.status(500).send({ error: e.message });
+    }
+  },
+  update: async (req, res) => {
+    try {
+      await prisma.user.update({
+        where: {
+          id: parseInt(req.body.id),
+        },
+        data: {
+          name: req.body.name,
+          username: req.body.username,
+          level: req.body.level,
+          password: req.body.password
+        },
+      });
+      return res.send({ message: "success" });
+    } catch (e) {
+      return res.status(500).send({ error: e.message });
+    }
+  },
+  remove: async (req, res) => {
+    try {
+      await prisma.user.update({
+        where: {
+          id: parseInt(req.params.id),
+        },
+        data: {
+          status: "delete",
+        },
+      });
+      return res.send({ message: "success" });
     } catch (e) {
       return res.status(500).send({ error: e.message });
     }
