@@ -134,7 +134,37 @@ module.exports = {
         },
       });
     } catch (e) {
-      return res.send(500).send({ error: e.message });
+       return res.status(500).send({ error: e.message });
+    }
+  },
+  paginate: async (req, res) => {
+    try {
+      const page = req.body.page || 1;
+      const itemPerPage = req.body.itemsPerPage || 10;
+      const foods = await prisma.food.findMany({
+        skip: (page - 1) * itemPerPage,
+        take: itemPerPage,
+        orderBy: {
+          id: "desc",
+        },
+        where: {
+          status: "use",
+        },
+      });
+      const totalItems = await prisma.food.count({
+        where: {
+          status: "use",
+        },
+      });
+      const totalPages = Math.ceil(totalItems / itemPerPage);
+
+      return res.send({
+        results: foods,
+        totalItems: totalItems,
+        totalPages: totalPages,
+      });
+    } catch (e) {
+       return res.status(500).send({ error: e.message });
     }
   },
 };

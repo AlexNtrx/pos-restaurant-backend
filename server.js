@@ -76,10 +76,10 @@ app.post("/api/report/dailySales", isAuthen, isAdmin, (req, res) =>
 );
 
 //billSale
-app.post("/api/billSale/list", isAuthen,isAdmin, (req, res) =>
+app.post("/api/billSale/list", isAuthen, isAdmin, (req, res) =>
   BillSaleController.list(req, res),
 );
-app.delete("/api/billSale/remove/:id", isAuthen,isAdmin, (req, res) =>
+app.delete("/api/billSale/remove/:id", isAuthen, isAdmin, (req, res) =>
   BillSaleController.remove(req, res),
 );
 
@@ -142,6 +142,7 @@ app.post("/api/saleTemp/create", isAuthen, (req, res) =>
 );
 
 //food
+app.post("/api/food/paginate", (req, res) => FoodController.paginate(req, res));
 app.get("/api/food/filter/:foodType", isAuthen, (req, res) =>
   FoodController.filter(req, res),
 );
@@ -204,12 +205,16 @@ app.delete("/api/foodtype/remove/:id", isAuthen, isAdmin, (req, res) =>
 );
 
 //signIn
-app.get("/api/user/getLevelByToken", isAuthen,(req, res) =>
+app.get("/api/user/getLevelByToken", isAuthen, (req, res) =>
   UserController.getLevelByToken(req, res),
 );
-app.get("/api/user/list",isAuthen, isAdmin, (req, res) => UserController.list(req, res));
-app.put("/api/user/update", isAuthen, isAdmin,(req, res) => UserController.update(req, res));
-app.delete("/api/user/remove/:id",isAuthen, isAdmin, (req, res) =>
+app.get("/api/user/list", isAuthen, isAdmin, (req, res) =>
+  UserController.list(req, res),
+);
+app.put("/api/user/update", isAuthen, isAdmin, (req, res) =>
+  UserController.update(req, res),
+);
+app.delete("/api/user/remove/:id", isAuthen, isAdmin, (req, res) =>
   UserController.remove(req, res),
 );
 app.post("/api/user/create", (req, res) => UserController.create(req, res));
