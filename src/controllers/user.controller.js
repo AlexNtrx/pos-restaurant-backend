@@ -1,8 +1,7 @@
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
-const { update } = require("./FoodTypeControllert");
+const { update } = require("./food-type.controller");
 dotenv.config();
 module.exports = {
   signIn: async (req, res) => {

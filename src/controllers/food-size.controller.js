@@ -1,6 +1,5 @@
-const { PrismaClient } = require("@prisma/client");
 const { error } = require("node:console");
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 module.exports = {
   create: async (req, res) => {

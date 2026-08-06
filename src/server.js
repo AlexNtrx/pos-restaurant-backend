@@ -10,15 +10,15 @@ app.use(cors());
 app.use(fileUpload());
 app.use("/uploads", express.static("uploads"));
 
-const UserController = require("./controller/UserController");
-const foodTypeController = require("./controller/FoodTypeControllert");
-const foodSizeController = require("./controller/FoodSizeController");
-const TasteController = require("./controller/TasteController");
-const FoodController = require("./controller/FoodController");
-const SaleTempController = require("./controller/SaleTempController");
-const OrganizationController = require("./controller/OrganizationController");
-const BillSaleController = require("./controller/BillSaleController");
-const ReportController = require("./controller/ReportController");
+const UserController = require("./controllers/user.controller");
+const foodTypeController = require("./controllers/food-type.controller");
+const foodSizeController = require("./controllers/food-size.controller");
+const TasteController = require("./controllers/taste.controller");
+const FoodController = require("./controllers/food.controller");
+const SaleTempController = require("./controllers/sale-temp.controller");
+const OrganizationController = require("./controllers/organization.controller");
+const BillSaleController = require("./controllers/bill-sale.controller");
+const ReportController = require("./controllers/report.controller");
 
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
