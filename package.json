@@ -1,0 +1,33 @@
+{
+  "name": "next-pos-api",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/auth.test.js test/cart.test.js test/checkout.test.js test/user.test.js test/food.test.js test/food-type.test.js test/food-size.test.js test/taste.test.js test/organization.test.js test/bill-sale.test.js test/report.test.js test/image-upload.test.js",
+    "migrate:passwords": "node scripts/migrate-passwords.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "body-parser": "^2.3.0",
+    "cors": "^2.8.6",
+    "dayjs": "^1.11.21",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-fileupload": "^1.5.2",
+    "jsonwebtoken": "^9.0.3",
+    "pdfkit": "^0.19.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "prettier": "3.9.6",
+    "prisma": "^5.22.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}

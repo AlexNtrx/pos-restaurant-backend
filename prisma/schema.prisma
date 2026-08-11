@@ -1,0 +1,150 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       Int        @id() @default(autoincrement())
+  name     String
+  username String
+  password String
+  level    String     @default("admin")
+  status   String     @default("use")
+  BillSale BillSale[]
+  CancelledBills BillSale[] @relation("BillCancelledBy")
+  SaleTemp SaleTemp[]
+}
+
+model FoodType {
+  id        Int        @id() @default(autoincrement())
+  name      String
+  remark    String
+  status    String     @default("use")
+  foodSizes FoodSize[]
+  tastes    Taste[]
+  food      Food[]
+}
+
+model FoodSize {
+  id              Int              @id() @default(autoincrement())
+  name            String
+  remark          String
+  foodTypeId      Int
+  moneyAdded      Int
+  status          String           @default("use")
+  FoodType        FoodType         @relation(fields: [foodTypeId], references: [id])
+  saleTempDetails SaleTempDetail[]
+  billSaleDetails BillSaleDetail[]
+}
+
+model Taste {
+  id              Int              @id() @default(autoincrement())
+  name            String
+  remark          String
+  status          String           @default("use")
+  foodTypeId      Int
+  FoodType        FoodType         @relation(fields: [foodTypeId], references: [id])
+  saleTempDetails SaleTempDetail[]
+  billSaleDetails BillSaleDetail[]
+}
+
+model Food {
+  id              Int              @id() @default(autoincrement())
+  name            String
+  img             String
+  remark          String
+  status          String           @default("use")
+  price           Int
+  foodTypeId      Int
+  foodType        String           @default("food")
+  FoodType        FoodType         @relation(fields: [foodTypeId], references: [id])
+  SaleTempDetails SaleTempDetail[]
+  SaleTemps       SaleTemp[]
+  BillSaleDetail  BillSaleDetail[]
+}
+
+model SaleTemp {
+  id              Int              @id() @default(autoincrement())
+  userId          Int
+  tableNo         Int
+  foodId          Int
+  qty             Int              @default(1)
+  saleTempDetails SaleTempDetail[]
+  Food            Food             @relation(fields: [foodId], references: [id])
+  User            User             @relation(fields: [userId], references: [id])
+
+  @@unique([userId, tableNo, foodId])
+}
+
+model SaleTempDetail {
+  id         Int       @id() @default(autoincrement())
+  saleTempId Int
+  foodId     Int
+  tasteId    Int?
+  foodSizeId Int?
+  Food       Food      @relation(fields: [foodId], references: [id])
+  Taste      Taste?    @relation(fields: [tasteId], references: [id])
+  FoodSize   FoodSize? @relation(fields: [foodSizeId], references: [id])
+  SaleTemp   SaleTemp  @relation(fields: [saleTempId], references: [id])
+}
+
+model Organization {
+  id      Int    @id() @default(autoincrement())
+  name    String
+  phone   String
+  address String
+  email   String
+  website String
+  bankNo  String
+  logo    String
+  taxCode String
+}
+
+model BillSale {
+  id                  Int              @id() @default(autoincrement())
+  createdDate         DateTime         @default(now())
+  amount              Int
+  payType             String
+  payDate             DateTime         @default(now())
+  userId              Int
+  inputMoney          Int
+  returnMoney         Int
+  tableNo             Int
+  status              String           @default("use")
+  idempotencyKey      String?
+  checkoutFingerprint String?
+  cancelledAt         DateTime?
+  cancelledByUserId   Int?
+  cancelReason        String?
+  User                User             @relation(fields: [userId], references: [id])
+  CancelledBy         User?            @relation("BillCancelledBy", fields: [cancelledByUserId], references: [id])
+  BillSaleDetails     BillSaleDetail[]
+
+  @@unique([userId, idempotencyKey])
+}
+
+model BillSaleDetail {
+  id           Int       @id() @default(autoincrement())
+  billSaleId   Int
+  foodId       Int
+  foodSizeId   Int?
+  tastedId     Int?
+  moneyAdded   Int       @default(0)
+  price        Int
+  foodName     String
+  foodSizeName String?
+  tasteName    String?
+  BillSale     BillSale  @relation(fields: [billSaleId], references: [id])
+  Food         Food      @relation(fields: [foodId], references: [id])
+  FoodSize     FoodSize? @relation(fields: [foodSizeId], references: [id])
+  Taste        Taste?    @relation(fields: [tastedId], references: [id])
+}

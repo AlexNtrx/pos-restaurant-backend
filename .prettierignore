@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+build
+coverage
+prisma/generated
+prisma/**/generated
+uploads
+Kanit
+**/*.min.*
+**/*.map
+**/*.{png,jpg,jpeg,gif,svg,ico,webp,avif,pdf,ttf,otf,woff,woff2,eot}
