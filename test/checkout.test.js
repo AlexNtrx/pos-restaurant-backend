@@ -5,6 +5,7 @@ const { existsSync, readdirSync } = require("node:fs");
 const { once } = require("node:events");
 const jwt = require("jsonwebtoken");
 const { PrismaClient } = require("@prisma/client");
+const { submitOrder } = require("../lib/order-service");
 const {
   beginOrganizationFixture,
   cleanupTestFixture,
@@ -24,7 +25,7 @@ let ownerToken;
 let otherToken;
 const createdBillIds = new Set();
 const baseTable = 800000 + (Date.now() % 90000);
-const testTables = Array.from({ length: 8 }, (_, index) => baseTable + index);
+const testTables = Array.from({ length: 11 }, (_, index) => baseTable + index);
 let fixture;
 let organizationFixture;
 
@@ -53,6 +54,9 @@ const clearTestData = async () => {
     await tx.saleTemp.deleteMany({ where: { tableNo: { in: testTables } } });
     const billIds = [...createdBillIds];
     if (billIds.length > 0) {
+      await tx.order.deleteMany({
+        where: { billSaleId: { in: billIds } },
+      });
       await tx.billSaleDetail.deleteMany({
         where: { billSaleId: { in: billIds } },
       });
@@ -185,6 +189,24 @@ test("checkout ignores forged authority and finalizes only the authenticated sel
   assert.equal(bill.BillSaleDetails[0].foodSizeName, size.name);
   assert.equal(bill.BillSaleDetails[0].price, food.price);
   assert.equal(bill.BillSaleDetails[0].moneyAdded, size.moneyAdded);
+  const order = await prisma.order.findFirst({
+    where: { billSaleId: bill.id },
+    include: {
+      Items: { include: { Modifiers: true } },
+      StatusHistory: { orderBy: { version: "asc" } },
+    },
+  });
+  assert.ok(order);
+  assert.equal(order.channel, "COUNTER");
+  assert.equal(order.status, "COMPLETED");
+  assert.equal(order.createdByUserId, owner.id);
+  assert.equal(order.total, expectedAmount);
+  assert.equal(order.Items.length, 1);
+  assert.equal(order.Items[0].Modifiers[0].foodSizeId, size.id);
+  assert.deepEqual(
+    order.StatusHistory.map(({ toStatus }) => toStatus),
+    ["SUBMITTED", "PAID", "COMPLETED"],
+  );
   assert.equal(
     await prisma.saleTemp.count({
       where: { userId: owner.id, tableNo: testTables[1] },
@@ -211,6 +233,15 @@ test("checkout ignores forged authority and finalizes only the authenticated sel
   assert.equal(
     await prisma.billSale.count({
       where: { userId: owner.id, idempotencyKey: body.idempotencyKey },
+    }),
+    1,
+  );
+  assert.equal(
+    await prisma.order.count({
+      where: {
+        idempotencyScope: "USER:" + owner.id,
+        idempotencyKey: body.idempotencyKey,
+      },
     }),
     1,
   );
@@ -254,6 +285,12 @@ test("invalid cash payment preserves the cart and creates no bill", async () => 
     }),
     0,
   );
+  assert.equal(
+    await prisma.order.count({
+      where: { idempotencyScope: "USER:" + owner.id, idempotencyKey: key },
+    }),
+    0,
+  );
 });
 
 test("concurrent checkout attempts create exactly one bill", async () => {
@@ -269,6 +306,12 @@ test("concurrent checkout attempts create exactly one bill", async () => {
   assert.equal(
     await prisma.billSale.count({
       where: { userId: owner.id, tableNo: testTables[4] },
+    }),
+    1,
+  );
+  assert.equal(
+    await prisma.order.count({
+      where: { createdByUserId: owner.id, tableNo: testTables[4] },
     }),
     1,
   );
@@ -289,6 +332,105 @@ test("concurrent exact retries return the same bill", async () => {
     }),
     1,
   );
+  assert.equal(
+    await prisma.order.count({
+      where: {
+        idempotencyScope: "USER:" + owner.id,
+        idempotencyKey: body.idempotencyKey,
+      },
+    }),
+    1,
+  );
+});
+
+test("Counter checkout groups a legacy cart with more than 200 units", async () => {
+  const cart = await createCart(testTables[8]);
+  const update = await fetch(apiBaseUrl + "/saleTemp/updateQty", {
+    method: "PUT",
+    ...jsonRequest(ownerToken, { id: cart.id, qty: 201 }),
+  });
+  assert.equal(update.status, 200);
+  const { response, payload } = await checkout(
+    ownerToken,
+    checkoutBody(testTables[8], { payType: "bank" }),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(payload.amount, food.price * 201);
+  const order = await prisma.order.findFirst({
+    where: { billSaleId: payload.billId },
+    include: { Items: true },
+  });
+  assert.ok(order);
+  assert.equal(order.Items.length, 1);
+  assert.equal(order.Items[0].quantity, 201);
+  assert.equal(
+    await prisma.billSaleDetail.count({
+      where: { billSaleId: payload.billId },
+    }),
+    201,
+  );
+});
+
+test("an Order key conflict rolls back checkout and preserves the cart", async () => {
+  const key = randomUUID();
+  await submitOrder(prisma, {
+    actor: { type: "STAFF", userId: owner.id, level: owner.level },
+    idempotencyKey: key,
+    intent: {
+      channel: "COUNTER",
+      tableNo: testTables[9],
+      items: [{ foodId: food.id, quantity: 1 }],
+    },
+  });
+  await createCart(testTables[10]);
+  const { response } = await checkout(
+    ownerToken,
+    checkoutBody(testTables[10], { idempotencyKey: key }),
+  );
+  assert.equal(response.status, 409);
+  assert.equal(
+    await prisma.billSale.count({
+      where: { userId: owner.id, idempotencyKey: key },
+    }),
+    0,
+  );
+  assert.equal(
+    await prisma.saleTemp.count({
+      where: { userId: owner.id, tableNo: testTables[10] },
+    }),
+    1,
+  );
+});
+
+test("disabling the Counter bridge uses legacy checkout without deleting prior Orders", async () => {
+  const existing = await prisma.order.findFirst({
+    where: {
+      channel: "COUNTER",
+      createdByUserId: owner.id,
+      billSaleId: { not: null },
+    },
+    select: { id: true },
+  });
+  assert.ok(existing);
+  await createCart(testTables[5]);
+  const previous = process.env.ORD02_COUNTER_CHECKOUT_ENABLED;
+  process.env.ORD02_COUNTER_CHECKOUT_ENABLED = "false";
+  try {
+    const { response, payload } = await checkout(
+      ownerToken,
+      checkoutBody(testTables[5]),
+    );
+    assert.equal(response.status, 200);
+    assert.equal(
+      await prisma.order.count({ where: { billSaleId: payload.billId } }),
+      0,
+    );
+  } finally {
+    if (previous === undefined)
+      delete process.env.ORD02_COUNTER_CHECKOUT_ENABLED;
+    else process.env.ORD02_COUNTER_CHECKOUT_ENABLED = previous;
+  }
+  assert.ok(await prisma.order.findUnique({ where: { id: existing.id } }));
 });
 
 test("receipts stream complete PDFs by authorized bill id and legacy files are blocked", async () => {

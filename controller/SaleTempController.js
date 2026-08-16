@@ -1,6 +1,8 @@
 const prisma = require("../lib/prisma");
 const { createHash } = require("node:crypto");
 const { sendReceiptPdf } = require("../lib/receipt-pdf");
+const { createAndSettleCounterOrder } = require("../lib/order-service");
+const { OrderDomainError } = require("../lib/order-domain");
 
 // Coordinates positive integer behavior for this module.
 const positiveInteger = (value) => {
@@ -641,19 +643,37 @@ module.exports = {
             const returnMoney =
               payType === "bank" ? 0 : inputMoney - snapshot.amount;
 
-            const bill = await tx.billSale.create({
-              data: {
-                amount: snapshot.amount,
-                inputMoney,
-                returnMoney,
-                payType,
-                tableNo,
-                userId: req.user.id,
-                idempotencyKey,
-                checkoutFingerprint: fingerprint,
-                BillSaleDetails: { create: snapshot.lines },
-              },
-            });
+            // EN: Disabling the bridge restores legacy checkout without deleting prior Orders.
+            // FI: Sovittimen poistaminen käytöstä palauttaa vanhan maksupolun poistamatta aiempia tilauksia.
+            const bill =
+              process.env.ORD02_COUNTER_CHECKOUT_ENABLED === "false"
+                ? await tx.billSale.create({
+                    data: {
+                      amount: snapshot.amount,
+                      inputMoney,
+                      returnMoney,
+                      payType,
+                      tableNo,
+                      userId: req.user.id,
+                      idempotencyKey,
+                      checkoutFingerprint: fingerprint,
+                      BillSaleDetails: { create: snapshot.lines },
+                    },
+                  })
+                : await createAndSettleCounterOrder(tx, {
+                    actor: {
+                      type: "STAFF",
+                      userId: req.user.id,
+                      level: req.user.level,
+                    },
+                    idempotencyKey,
+                    tableNo,
+                    lines: snapshot.lines,
+                    amount: snapshot.amount,
+                    payType,
+                    inputMoney,
+                    checkoutFingerprint: fingerprint,
+                  });
 
             const cartIds = snapshot.carts.map(({ id }) => id);
             await tx.saleTempDetail.deleteMany({
@@ -685,7 +705,7 @@ module.exports = {
         }
       }
     } catch (e) {
-      if (e instanceof CheckoutError)
+      if (e instanceof CheckoutError || e instanceof OrderDomainError)
         return res.status(e.status).send({ error: e.message });
       return sendUnexpectedError(res, e);
     }
