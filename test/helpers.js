@@ -144,6 +144,16 @@ const cleanupTestFixture = async (fixture) => {
   const foodIds = [fixture.food.id];
   const categoryIds = [fixture.category.id, fixture.otherCategory.id];
   await prisma.$transaction(async (tx) => {
+    // EN: Orders reference users, foods, and bills, so aggregate cleanup must run before legacy fixtures.
+    // FI: Tilaukset viittaavat käyttäjiin, ruokiin ja laskuihin, joten aggregaatit poistetaan ennen vanhoja testitietoja.
+    await tx.order.deleteMany({
+      where: {
+        OR: [
+          { createdByUserId: { in: userIds } },
+          { Items: { some: { foodId: { in: foodIds } } } },
+        ],
+      },
+    });
     await tx.billSaleDetail.deleteMany({
       where: {
         OR: [

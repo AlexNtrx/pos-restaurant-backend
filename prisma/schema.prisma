@@ -13,15 +13,17 @@ datasource db {
 }
 
 model User {
-  id       Int        @id() @default(autoincrement())
-  name     String
-  username String
-  password String
-  level    String     @default("admin")
-  status   String     @default("use")
-  BillSale BillSale[]
-  CancelledBills BillSale[] @relation("BillCancelledBy")
-  SaleTemp SaleTemp[]
+  id                   Int                  @id() @default(autoincrement())
+  name                 String
+  username             String
+  password             String
+  level                String               @default("admin")
+  status               String               @default("use")
+  BillSale             BillSale[]
+  CancelledBills       BillSale[]           @relation("BillCancelledBy")
+  SaleTemp             SaleTemp[]
+  CreatedOrders        Order[]              @relation("OrderCreatedBy")
+  OrderStatusHistories OrderStatusHistory[] @relation("OrderStatusActor")
 }
 
 model FoodType {
@@ -35,26 +37,28 @@ model FoodType {
 }
 
 model FoodSize {
-  id              Int              @id() @default(autoincrement())
-  name            String
-  remark          String
-  foodTypeId      Int
-  moneyAdded      Int
-  status          String           @default("use")
-  FoodType        FoodType         @relation(fields: [foodTypeId], references: [id])
-  saleTempDetails SaleTempDetail[]
-  billSaleDetails BillSaleDetail[]
+  id                 Int                 @id() @default(autoincrement())
+  name               String
+  remark             String
+  foodTypeId         Int
+  moneyAdded         Int
+  status             String              @default("use")
+  FoodType           FoodType            @relation(fields: [foodTypeId], references: [id])
+  saleTempDetails    SaleTempDetail[]
+  billSaleDetails    BillSaleDetail[]
+  orderItemModifiers OrderItemModifier[]
 }
 
 model Taste {
-  id              Int              @id() @default(autoincrement())
-  name            String
-  remark          String
-  status          String           @default("use")
-  foodTypeId      Int
-  FoodType        FoodType         @relation(fields: [foodTypeId], references: [id])
-  saleTempDetails SaleTempDetail[]
-  billSaleDetails BillSaleDetail[]
+  id                 Int                 @id() @default(autoincrement())
+  name               String
+  remark             String
+  status             String              @default("use")
+  foodTypeId         Int
+  FoodType           FoodType            @relation(fields: [foodTypeId], references: [id])
+  saleTempDetails    SaleTempDetail[]
+  billSaleDetails    BillSaleDetail[]
+  orderItemModifiers OrderItemModifier[]
 }
 
 model Food {
@@ -70,6 +74,7 @@ model Food {
   SaleTempDetails SaleTempDetail[]
   SaleTemps       SaleTemp[]
   BillSaleDetail  BillSaleDetail[]
+  OrderItems      OrderItem[]
 }
 
 model SaleTemp {
@@ -125,11 +130,15 @@ model BillSale {
   cancelledAt         DateTime?
   cancelledByUserId   Int?
   cancelReason        String?
+  tableSessionId      Int?             @unique
   User                User             @relation(fields: [userId], references: [id])
   CancelledBy         User?            @relation("BillCancelledBy", fields: [cancelledByUserId], references: [id])
   BillSaleDetails     BillSaleDetail[]
+  TableSession        TableSession?    @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
+  Orders              Order[]
 
   @@unique([userId, idempotencyKey])
+  @@index([payDate, status])
 }
 
 model BillSaleDetail {
@@ -147,4 +156,162 @@ model BillSaleDetail {
   Food         Food      @relation(fields: [foodId], references: [id])
   FoodSize     FoodSize? @relation(fields: [foodSizeId], references: [id])
   Taste        Taste?    @relation(fields: [tastedId], references: [id])
+}
+
+enum OrderChannel {
+  COUNTER
+  QR
+}
+
+enum OrderStatus {
+  SUBMITTED
+  CONFIRMED
+  REJECTED
+  PREPARING
+  READY
+  SERVED
+  PAID
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderModifierType {
+  SIZE
+  TASTE
+}
+
+enum OrderActorType {
+  CUSTOMER
+  STAFF
+  SYSTEM
+}
+
+enum TableSessionStatus {
+  OPEN
+  CLOSED
+}
+
+model RestaurantTable {
+  id        Int            @id() @default(autoincrement())
+  tableNo   Int            @unique
+  name      String?
+  status    String         @default("use")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  Sessions  TableSession[]
+  Orders    Order[]
+}
+
+model TableSession {
+  id                Int                @id() @default(autoincrement())
+  restaurantTableId Int
+  status            TableSessionStatus @default(OPEN)
+  openedAt          DateTime           @default(now())
+  closedAt          DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  RestaurantTable   RestaurantTable    @relation(fields: [restaurantTableId], references: [id], onDelete: Restrict)
+  Orders            Order[]
+  BillSale          BillSale?
+
+  // EN: PostgreSQL enforces one OPEN session per table with a partial unique index in the migration.
+  // FI: PostgreSQL varmistaa migraation osittaisella yksilöllisellä indeksillä yhden OPEN-istunnon pöytää kohden.
+  @@index([restaurantTableId, status])
+  @@index([status, openedAt])
+}
+
+model Order {
+  id                     Int                  @id() @default(autoincrement())
+  channel                OrderChannel
+  status                 OrderStatus          @default(SUBMITTED)
+  restaurantTableId      Int?
+  tableSessionId         Int?
+  tableNo                Int
+  createdByUserId        Int?
+  subtotal               Int
+  modifierTotal          Int
+  total                  Int
+  version                Int                  @default(1)
+  idempotencyScope       String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  submittedAt            DateTime             @default(now())
+  confirmedAt            DateTime?
+  rejectedAt             DateTime?
+  preparingAt            DateTime?
+  readyAt                DateTime?
+  servedAt               DateTime?
+  paidAt                 DateTime?
+  completedAt            DateTime?
+  cancelledAt            DateTime?
+  rejectionReason        String?
+  cancellationReason     String?
+  billSaleId             Int?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  RestaurantTable        RestaurantTable?     @relation(fields: [restaurantTableId], references: [id], onDelete: Restrict)
+  TableSession           TableSession?        @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
+  CreatedBy              User?                @relation("OrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  BillSale               BillSale?            @relation(fields: [billSaleId], references: [id], onDelete: Restrict)
+  Items                  OrderItem[]
+  StatusHistory          OrderStatusHistory[]
+
+  @@unique([idempotencyScope, idempotencyKey])
+  @@index([status, updatedAt])
+  @@index([channel, status, createdAt])
+  @@index([tableSessionId, status, createdAt])
+  @@index([createdByUserId, createdAt])
+  @@index([billSaleId])
+}
+
+model OrderItem {
+  id                Int                 @id() @default(autoincrement())
+  orderId           Int
+  foodId            Int
+  foodName          String
+  quantity          Int
+  unitBasePrice     Int
+  unitModifierTotal Int
+  unitTotal         Int
+  lineTotal         Int
+  Order             Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  Food              Food                @relation(fields: [foodId], references: [id], onDelete: Restrict)
+  Modifiers         OrderItemModifier[]
+
+  @@index([orderId])
+  @@index([foodId])
+}
+
+model OrderItemModifier {
+  id              Int               @id() @default(autoincrement())
+  orderItemId     Int
+  type            OrderModifierType
+  foodSizeId      Int?
+  tasteId         Int?
+  name            String
+  priceAdjustment Int
+  OrderItem       OrderItem         @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  FoodSize        FoodSize?         @relation(fields: [foodSizeId], references: [id], onDelete: SetNull)
+  Taste           Taste?            @relation(fields: [tasteId], references: [id], onDelete: SetNull)
+
+  @@index([orderItemId])
+  @@index([foodSizeId])
+  @@index([tasteId])
+}
+
+model OrderStatusHistory {
+  id          Int            @id() @default(autoincrement())
+  orderId     Int
+  fromStatus  OrderStatus?
+  toStatus    OrderStatus
+  version     Int
+  actorType   OrderActorType
+  actorUserId Int?
+  reason      String?
+  createdAt   DateTime       @default(now())
+  Order       Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ActorUser   User?          @relation("OrderStatusActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([orderId, version])
+  @@index([orderId, createdAt])
 }
