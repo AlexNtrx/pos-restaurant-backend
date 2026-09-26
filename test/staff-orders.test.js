@@ -219,3 +219,78 @@ test("one concurrent staff action wins; rejected/cancelled Orders leave inbox bu
     });
   }
 });
+
+test("history filters submitted dates and dashboard uses operational records with admin access", async () => {
+  const submittedFrom = new Date(Date.now() - 1_000).toISOString();
+  const order = await createCounterOrder();
+  const submittedBefore = new Date(Date.now() + 1_000).toISOString();
+  const filtered = await request(
+    `/orders?channel=COUNTER&submittedFrom=${encodeURIComponent(submittedFrom)}&submittedBefore=${encodeURIComponent(submittedBefore)}`,
+  );
+  assert.equal(filtered.status, 200);
+  const rows = (await filtered.json()).results;
+  assert.ok(rows.some((row) => row.id === order.id));
+  const saved = rows.find((row) => row.id === order.id);
+  assert.equal(saved.confirmedAt, null);
+  assert.equal(saved.paidAt, null);
+  assert.ok(saved.submittedAt);
+  const qrOnly = await request(
+    `/orders?channel=QR&submittedFrom=${encodeURIComponent(submittedFrom)}&submittedBefore=${encodeURIComponent(submittedBefore)}`,
+  );
+  assert.equal(qrOnly.status, 200);
+  assert.ok(!(await qrOnly.json()).results.some((row) => row.id === order.id));
+  const sessionOnly = await request(
+    `/orders?tableSessionId=${qrAccess.session.id}&submittedFrom=${encodeURIComponent(submittedFrom)}&submittedBefore=${encodeURIComponent(submittedBefore)}`,
+  );
+  assert.equal(sessionOnly.status, 200);
+  assert.ok(
+    !(await sessionOnly.json()).results.some((row) => row.id === order.id),
+  );
+  assert.equal(
+    (
+      await request(
+        `/orders?submittedFrom=${encodeURIComponent(submittedBefore)}&submittedBefore=${encodeURIComponent(submittedFrom)}`,
+      )
+    ).status,
+    400,
+  );
+
+  assert.equal(
+    (await request("/dashboard/operations", "GET", undefined, null)).status,
+    401,
+  );
+  assert.equal((await request("/dashboard/operations")).status, 403);
+  const response = await request(
+    "/dashboard/operations",
+    "GET",
+    undefined,
+    fixture.admin,
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const dashboard = await response.json();
+  const activeStatuses = [
+    "SUBMITTED",
+    "CONFIRMED",
+    "PREPARING",
+    "READY",
+    "SERVED",
+  ];
+  const [activeOrders, kitchenQueue, readyOrders, openTables] =
+    await Promise.all([
+      prisma.order.count({ where: { status: { in: activeStatuses } } }),
+      prisma.order.count({
+        where: { status: { in: ["CONFIRMED", "PREPARING"] } },
+      }),
+      prisma.order.count({ where: { status: "READY" } }),
+      prisma.tableSession.count({ where: { status: "OPEN" } }),
+    ]);
+  assert.deepEqual(dashboard.metrics, {
+    activeOrders,
+    kitchenQueue,
+    readyOrders,
+    openTables,
+  });
+  assert.ok(dashboard.recentOrders.some((row) => row.id === order.id));
+  assert.ok(dashboard.recentOrders.length <= 5);
+});

@@ -38,6 +38,7 @@ const TablePaymentController = require("./controller/TablePaymentController");
 const OrganizationController = require("./controller/OrganizationController");
 const BillSaleController = require("./controller/BillSaleController");
 const ReportController = require("./controller/ReportController");
+const DashboardController = require("./controller/DashboardController");
 const { isAdmin, isAuthen, isStaff } = require("./middleware/auth");
 
 const dotenv = require("dotenv");
@@ -111,6 +112,12 @@ app.patch(
 );
 
 //report
+app.get(
+  "/api/dashboard/operations",
+  isAuthen,
+  isAdmin,
+  DashboardController.operations,
+);
 app.post("/api/report/sumMonthly", isAuthen, isAdmin, (req, res) =>
   ReportController.sumMonthly(req, res),
 );
