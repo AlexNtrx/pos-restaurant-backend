@@ -29,6 +29,12 @@ const foodSizeController = require("./controller/FoodSizeController");
 const TasteController = require("./controller/TasteController");
 const FoodController = require("./controller/FoodController");
 const SaleTempController = require("./controller/SaleTempController");
+const CounterOrderController = require("./controller/CounterOrderController");
+const TableController = require("./controller/TableController");
+const QrPublicController = require("./controller/QrPublicController");
+const StaffOrderController = require("./controller/StaffOrderController");
+const KitchenOrderController = require("./controller/KitchenOrderController");
+const TablePaymentController = require("./controller/TablePaymentController");
 const OrganizationController = require("./controller/OrganizationController");
 const BillSaleController = require("./controller/BillSaleController");
 const ReportController = require("./controller/ReportController");
@@ -36,6 +42,73 @@ const { isAdmin, isAuthen, isStaff } = require("./middleware/auth");
 
 const dotenv = require("dotenv");
 dotenv.config();
+
+// EN: QR-01 raw access tokens are issued only to authenticated staff, never on a public route.
+// FI: QR-01:n alkuperäiset tunnisteet annetaan vain tunnistautuneelle henkilökunnalle, ei julkisella reitillä.
+app.get("/api/tables", isAuthen, isStaff, TableController.list);
+app.post("/api/tables", isAuthen, isAdmin, TableController.create);
+app.put("/api/tables/:tableId", isAuthen, isAdmin, TableController.update);
+app.delete("/api/tables/:tableId", isAuthen, isAdmin, TableController.remove);
+app.post(
+  "/api/tables/:tableId/sessions",
+  isAuthen,
+  isStaff,
+  TableController.openSession,
+);
+app.post(
+  "/api/table-sessions/:sessionId/rotate-token",
+  isAuthen,
+  isStaff,
+  TableController.rotateToken,
+);
+app.post(
+  "/api/table-sessions/:sessionId/close",
+  isAuthen,
+  isStaff,
+  TableController.closeSession,
+);
+app.post(
+  "/api/table-sessions/:sessionId/settle",
+  isAuthen,
+  isStaff,
+  TablePaymentController.settle,
+);
+app.get("/api/qr-mode", isAuthen, isStaff, TableController.getQrMode);
+app.get(
+  "/api/table-sessions/:sessionId/qr",
+  isAuthen,
+  isStaff,
+  TableController.reissueToken,
+);
+app.put("/api/qr-mode", isAuthen, isAdmin, TableController.setQrMode);
+
+// EN: Public QR requests use the table token only; no staff bearer token grants customer access.
+// FI: Julkiset QR-pyynnöt käyttävät vain pöytätunnistetta; henkilökunnan bearer-tunniste ei anna asiakaspääsyä.
+app.get("/api/qr/:token/context", QrPublicController.context);
+app.get("/api/qr/:token/menu", QrPublicController.menu);
+app.post("/api/qr/:token/orders", QrPublicController.submit);
+app.get("/api/qr/:token/orders/:orderId", QrPublicController.order);
+
+app.get("/api/orders", isAuthen, isStaff, StaffOrderController.list);
+app.get("/api/orders/:orderId", isAuthen, isStaff, StaffOrderController.detail);
+app.patch(
+  "/api/orders/:orderId/status",
+  isAuthen,
+  isStaff,
+  StaffOrderController.changeStatus,
+);
+app.patch(
+  "/api/orders/:orderId/serve",
+  isAuthen,
+  isStaff,
+  StaffOrderController.serve,
+);
+app.patch(
+  "/api/kitchen/orders/:orderId/status",
+  isAuthen,
+  isStaff,
+  KitchenOrderController.changeStatus,
+);
 
 //report
 app.post("/api/report/sumMonthly", isAuthen, isAdmin, (req, res) =>
@@ -65,11 +138,36 @@ app.get("/api/organization/info", isAuthen, isAdmin, (req, res) =>
 );
 
 //saleTemp
+app.post("/api/counterOrder/quote", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.quote(req, res),
+);
+app.get("/api/counterOrder/options/:foodId", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.options(req, res),
+);
+app.post("/api/counterOrder/submit", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.submit(req, res),
+);
+app.post("/api/counterOrder/checkout", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.checkout(req, res),
+);
+app.post("/api/counterOrder/prebill", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.prebill(req, res),
+);
+app.post("/api/counterOrder/:id/settle", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.settle(req, res),
+);
+
 app.post("/api/saleTemp/printBillAfterPay", isAuthen, isStaff, (req, res) =>
   SaleTempController.printBillAfterPay(req, res),
 );
 app.post("/api/saleTemp/endSale", isAuthen, isStaff, (req, res) =>
   SaleTempController.endSale(req, res),
+);
+app.post("/api/saleTemp/submitToKitchen", isAuthen, isStaff, (req, res) =>
+  SaleTempController.submitToKitchen(req, res),
+);
+app.get("/api/saleTemp/pendingCounterOrders", isAuthen, isStaff, (req, res) =>
+  SaleTempController.pendingCounterOrders(req, res),
 );
 app.post("/api/saleTemp/printBillBeforePay", isAuthen, isStaff, (req, res) =>
   SaleTempController.printBillBeforePay(req, res),

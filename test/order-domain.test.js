@@ -8,6 +8,7 @@ const {
   submitOrder,
   transitionOrder,
 } = require("../lib/order-service");
+const { rotateToken, resolveQrAccess } = require("../lib/table-service");
 const { cleanupTestFixture, createTestFixture } = require("./helpers");
 
 const prisma = new PrismaClient();
@@ -390,6 +391,8 @@ test("settlement atomically records PAID and COMPLETED and supports exact replay
 
 test("a TableSession settles all payable Orders into one BillSale without partial settlement", async () => {
   const { table, session } = await createOpenSession();
+  const issued = await rotateToken(prisma, session.id, 0);
+  assert.equal(issued.session.tokenVersion, 1);
   const submitQr = () =>
     submitOrder(prisma, {
       actor: { type: "CUSTOMER" },
@@ -435,4 +438,9 @@ test("a TableSession settles all payable Orders into one BillSale without partia
   });
   assert.equal(closed.status, "CLOSED");
   assert.ok(closed.closedAt instanceof Date);
+  assert.equal(closed.qrTokenHash, null);
+  assert.equal(closed.qrTokenNonce, null);
+  assert.equal(closed.qrTokenExpiresAt, null);
+  assert.equal(closed.tokenVersion, 2);
+  assert.equal(await resolveQrAccess(prisma, issued.token), null);
 });

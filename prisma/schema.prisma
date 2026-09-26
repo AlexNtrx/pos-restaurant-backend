@@ -191,6 +191,18 @@ enum TableSessionStatus {
   CLOSED
 }
 
+enum QrMode {
+  DISABLED
+  MENU_ONLY
+  ORDERING
+}
+
+model QrPolicy {
+  id        Int      @id
+  mode      QrMode   @default(DISABLED)
+  updatedAt DateTime @updatedAt
+}
+
 model RestaurantTable {
   id        Int            @id() @default(autoincrement())
   tableNo   Int            @unique
@@ -206,6 +218,10 @@ model TableSession {
   id                Int                @id() @default(autoincrement())
   restaurantTableId Int
   status            TableSessionStatus @default(OPEN)
+  qrTokenHash       String?            @unique
+  qrTokenNonce      String?
+  qrTokenExpiresAt  DateTime?
+  tokenVersion      Int                @default(0)
   openedAt          DateTime           @default(now())
   closedAt          DateTime?
   createdAt         DateTime           @default(now())
@@ -258,6 +274,7 @@ model Order {
 
   @@unique([idempotencyScope, idempotencyKey])
   @@index([status, updatedAt])
+  @@index([updatedAt, id])
   @@index([channel, status, createdAt])
   @@index([tableSessionId, status, createdAt])
   @@index([createdByUserId, createdAt])
@@ -274,6 +291,7 @@ model OrderItem {
   unitModifierTotal Int
   unitTotal         Int
   lineTotal         Int
+  note              String?
   Order             Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   Food              Food                @relation(fields: [foodId], references: [id], onDelete: Restrict)
   Modifiers         OrderItemModifier[]

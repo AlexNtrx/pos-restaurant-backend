@@ -1,7 +1,10 @@
 const prisma = require("../lib/prisma");
 const { createHash } = require("node:crypto");
 const { sendReceiptPdf } = require("../lib/receipt-pdf");
-const { createAndSettleCounterOrder } = require("../lib/order-service");
+const {
+  createAndSettleCounterOrder,
+  createSubmittedCounterOrder,
+} = require("../lib/order-service");
 const { OrderDomainError } = require("../lib/order-domain");
 
 // Coordinates positive integer behavior for this module.
@@ -708,6 +711,136 @@ module.exports = {
       if (e instanceof CheckoutError || e instanceof OrderDomainError)
         return res.status(e.status).send({ error: e.message });
       return sendUnexpectedError(res, e);
+    }
+  },
+  // EN: Sending to the future kitchen queue persists an immutable unpaid Order and clears only this staff cart.
+  // FI: Lähetys tulevaan keittiöjonoon tallentaa muuttumattoman maksamattoman tilauksen ja tyhjentää vain tämän työntekijän ostoskorin.
+  submitToKitchen: async (req, res) => {
+    const tableNo = positiveInteger(req.body?.tableNo);
+    const idempotencyKey = req.body?.idempotencyKey;
+    if (!tableNo)
+      return res
+        .status(400)
+        .send({ error: "tableNo must be a positive integer" });
+    if (
+      typeof idempotencyKey !== "string" ||
+      !CHECKOUT_KEY_PATTERN.test(idempotencyKey)
+    )
+      return res.status(400).send({ error: "idempotencyKey must be a UUID" });
+    if (process.env.ORD02_COUNTER_CHECKOUT_ENABLED === "false")
+      return res
+        .status(409)
+        .send({ error: "Counter Order bridge is disabled" });
+
+    const execute = () =>
+      prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${req.user.id}::int, ${tableNo}::int)`;
+          const existing = await tx.order.findUnique({
+            where: {
+              idempotencyScope_idempotencyKey: {
+                idempotencyScope: "COUNTER_KITCHEN_USER:" + req.user.id,
+                idempotencyKey: idempotencyKey.toLowerCase(),
+              },
+            },
+          });
+          if (existing) {
+            if (
+              existing.channel !== "COUNTER" ||
+              existing.tableNo !== tableNo ||
+              existing.billSaleId !== null
+            )
+              throw new CheckoutError(409, "Idempotency key conflict");
+            return {
+              orderId: existing.id,
+              status: existing.status,
+              total: existing.total,
+              replayed: true,
+            };
+          }
+          const snapshot = await loadCheckoutSnapshot(tx, req.user.id, tableNo);
+          const order = await createSubmittedCounterOrder(tx, {
+            actor: {
+              type: "STAFF",
+              userId: req.user.id,
+              level: req.user.level,
+            },
+            idempotencyKey,
+            tableNo,
+            lines: snapshot.lines,
+            amount: snapshot.amount,
+          });
+          const cartIds = snapshot.carts.map(({ id }) => id);
+          await tx.saleTempDetail.deleteMany({
+            where: { saleTempId: { in: cartIds } },
+          });
+          await tx.saleTemp.deleteMany({
+            where: { id: { in: cartIds }, userId: req.user.id, tableNo },
+          });
+          return {
+            orderId: order.id,
+            status: order.status,
+            total: order.total,
+            replayed: false,
+          };
+        },
+        { isolationLevel: "Serializable" },
+      );
+
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          return res.send(await execute());
+        } catch (error) {
+          if (error?.code === "P2034" && attempt < 2) continue;
+          if (error?.code === "P2002" && attempt < 2) continue;
+          throw error;
+        }
+      }
+    } catch (error) {
+      if (error instanceof CheckoutError || error instanceof OrderDomainError)
+        return res.status(error.status).send({ error: error.message });
+      if (error?.code === "P2002" || error?.code === "P2034")
+        return res
+          .status(409)
+          .send({ error: "Order submission conflicted; retry" });
+      return sendUnexpectedError(res, error);
+    }
+  },
+  // EN: Counter pending orders are scoped to the signed-in cashier until shared table sessions exist.
+  // FI: Kassaamisen odottavat tilaukset rajataan kirjautuneeseen työntekijään, kunnes yhteiset pöytäistunnot ovat käytössä.
+  pendingCounterOrders: async (req, res) => {
+    const tableNo = positiveInteger(req.query?.tableNo);
+    if (!tableNo)
+      return res
+        .status(400)
+        .send({ error: "tableNo must be a positive integer" });
+    try {
+      const orders = await prisma.order.findMany({
+        where: {
+          channel: "COUNTER",
+          createdByUserId: req.user.id,
+          tableNo,
+          billSaleId: null,
+          status: { notIn: ["REJECTED", "CANCELLED"] },
+        },
+        orderBy: { id: "desc" },
+        take: 100,
+        select: {
+          id: true,
+          status: true,
+          total: true,
+          version: true,
+          submittedAt: true,
+          Items: {
+            select: { foodName: true, quantity: true },
+            orderBy: { id: "asc" },
+          },
+        },
+      });
+      return res.send({ results: orders });
+    } catch (error) {
+      return sendUnexpectedError(res, error);
     }
   },
 };
