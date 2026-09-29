@@ -13,17 +13,19 @@ datasource db {
 }
 
 model User {
-  id                   Int                  @id() @default(autoincrement())
-  name                 String
-  username             String
-  password             String
-  level                String               @default("admin")
-  status               String               @default("use")
-  BillSale             BillSale[]
-  CancelledBills       BillSale[]           @relation("BillCancelledBy")
-  SaleTemp             SaleTemp[]
-  CreatedOrders        Order[]              @relation("OrderCreatedBy")
-  OrderStatusHistories OrderStatusHistory[] @relation("OrderStatusActor")
+  id                       Int                  @id() @default(autoincrement())
+  name                     String
+  username                 String
+  password                 String
+  level                    String               @default("admin")
+  status                   String               @default("use")
+  BillSale                 BillSale[]
+  CancelledBills           BillSale[]           @relation("BillCancelledBy")
+  SaleTemp                 SaleTemp[]
+  CreatedOrders            Order[]              @relation("OrderCreatedBy")
+  OrderStatusHistories     OrderStatusHistory[] @relation("OrderStatusActor")
+  AcknowledgedServiceCalls ServiceCall[]        @relation("ServiceCallAcknowledgedBy")
+  ResolvedServiceCalls     ServiceCall[]        @relation("ServiceCallResolvedBy")
 }
 
 model FoodType {
@@ -65,6 +67,7 @@ model Food {
   id              Int              @id() @default(autoincrement())
   name            String
   img             String
+  detailImg       String           @default("")
   remark          String
   status          String           @default("use")
   price           Int
@@ -123,7 +126,8 @@ model BillSale {
   userId              Int
   inputMoney          Int
   returnMoney         Int
-  tableNo             Int
+  tableNo             Int?
+  serviceType         ServiceType      @default(DINE_IN)
   status              String           @default("use")
   idempotencyKey      String?
   checkoutFingerprint String?
@@ -163,6 +167,11 @@ enum OrderChannel {
   QR
 }
 
+enum ServiceType {
+  DINE_IN
+  TAKEAWAY
+}
+
 enum OrderStatus {
   SUBMITTED
   CONFIRMED
@@ -189,6 +198,12 @@ enum OrderActorType {
 enum TableSessionStatus {
   OPEN
   CLOSED
+}
+
+enum ServiceCallStatus {
+  REQUESTED
+  ACKNOWLEDGED
+  RESOLVED
 }
 
 enum QrMode {
@@ -229,11 +244,33 @@ model TableSession {
   RestaurantTable   RestaurantTable    @relation(fields: [restaurantTableId], references: [id], onDelete: Restrict)
   Orders            Order[]
   BillSale          BillSale?
+  ServiceCalls      ServiceCall[]
 
   // EN: PostgreSQL enforces one OPEN session per table with a partial unique index in the migration.
   // FI: PostgreSQL varmistaa migraation osittaisella yksilöllisellä indeksillä yhden OPEN-istunnon pöytää kohden.
   @@index([restaurantTableId, status])
   @@index([status, openedAt])
+}
+
+model ServiceCall {
+  id                   Int               @id() @default(autoincrement())
+  tableSessionId       Int
+  status               ServiceCallStatus @default(REQUESTED)
+  version              Int               @default(1)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  acknowledgedAt       DateTime?
+  resolvedAt           DateTime?
+  acknowledgedByUserId Int?
+  resolvedByUserId     Int?
+  TableSession         TableSession      @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
+  AcknowledgedBy       User?             @relation("ServiceCallAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
+  ResolvedBy           User?             @relation("ServiceCallResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  // EN: A partial unique index in the migration allows only one unresolved call per table session.
+  // FI: Migraation osittainen yksilöllinen indeksi sallii vain yhden keskeneräisen kutsun pöytäistuntoa kohden.
+  @@index([status, createdAt])
+  @@index([tableSessionId, createdAt])
 }
 
 model Order {
@@ -242,7 +279,8 @@ model Order {
   status                 OrderStatus          @default(SUBMITTED)
   restaurantTableId      Int?
   tableSessionId         Int?
-  tableNo                Int
+  tableNo                Int?
+  serviceType            ServiceType          @default(DINE_IN)
   createdByUserId        Int?
   subtotal               Int
   modifierTotal          Int

@@ -33,6 +33,7 @@ const CounterOrderController = require("./controller/CounterOrderController");
 const TableController = require("./controller/TableController");
 const QrPublicController = require("./controller/QrPublicController");
 const StaffOrderController = require("./controller/StaffOrderController");
+const ServiceCallController = require("./controller/ServiceCallController");
 const KitchenOrderController = require("./controller/KitchenOrderController");
 const TablePaymentController = require("./controller/TablePaymentController");
 const OrganizationController = require("./controller/OrganizationController");
@@ -89,6 +90,16 @@ app.get("/api/qr/:token/context", QrPublicController.context);
 app.get("/api/qr/:token/menu", QrPublicController.menu);
 app.post("/api/qr/:token/orders", QrPublicController.submit);
 app.get("/api/qr/:token/orders/:orderId", QrPublicController.order);
+app.get("/api/qr/:token/service-call", ServiceCallController.current);
+app.post("/api/qr/:token/service-call", ServiceCallController.create);
+
+app.get("/api/service-calls", isAuthen, isStaff, ServiceCallController.list);
+app.patch(
+  "/api/service-calls/:callId/status",
+  isAuthen,
+  isStaff,
+  ServiceCallController.changeStatus,
+);
 
 app.get("/api/orders", isAuthen, isStaff, StaffOrderController.list);
 app.get("/api/orders/:orderId", isAuthen, isStaff, StaffOrderController.detail);
@@ -159,6 +170,18 @@ app.post("/api/counterOrder/checkout", isAuthen, isStaff, (req, res) =>
 );
 app.post("/api/counterOrder/prebill", isAuthen, isStaff, (req, res) =>
   CounterOrderController.prebill(req, res),
+);
+app.get("/api/counterOrder/sent", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.listSent(req, res),
+);
+app.get("/api/counterOrder/:id", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.sentDetail(req, res),
+);
+app.patch("/api/counterOrder/:id/cancel", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.cancelSent(req, res),
+);
+app.post("/api/counterOrder/:id/prebill", isAuthen, isStaff, (req, res) =>
+  CounterOrderController.sentPrebill(req, res),
 );
 app.post("/api/counterOrder/:id/settle", isAuthen, isStaff, (req, res) =>
   CounterOrderController.settle(req, res),
