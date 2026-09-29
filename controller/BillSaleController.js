@@ -46,6 +46,8 @@ const listSelect = {
   amount: true,
   payType: true,
   tableNo: true,
+  serviceType: true,
+  Orders: { select: { id: true }, orderBy: { id: "asc" }, take: 1 },
   status: true,
   cancelledAt: true,
   cancelReason: true,

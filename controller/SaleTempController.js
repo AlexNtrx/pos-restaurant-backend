@@ -1,10 +1,7 @@
 const prisma = require("../lib/prisma");
 const { createHash } = require("node:crypto");
 const { sendReceiptPdf } = require("../lib/receipt-pdf");
-const {
-  createAndSettleCounterOrder,
-  createSubmittedCounterOrder,
-} = require("../lib/order-service");
+const { createAndSettleCounterOrder } = require("../lib/order-service");
 const { OrderDomainError } = require("../lib/order-domain");
 
 // Coordinates positive integer behavior for this module.
@@ -513,6 +510,7 @@ module.exports = {
         },
         include: {
           BillSaleDetails: { orderBy: { id: "asc" } },
+          Orders: { select: { id: true }, orderBy: { id: "asc" }, take: 1 },
         },
       });
       if (!billSale) return res.status(404).send({ error: "Bill not found" });
@@ -524,6 +522,11 @@ module.exports = {
           title: "Bill",
           billId: billSale.id,
           tableNo: billSale.tableNo,
+          serviceType: billSale.serviceType,
+          pickupNo:
+            billSale.serviceType === "TAKEAWAY"
+              ? (billSale.Orders[0]?.id ?? null)
+              : null,
           date: billSale.payDate,
           lines: billSale.BillSaleDetails,
           amount: billSale.amount,
@@ -713,8 +716,8 @@ module.exports = {
       return sendUnexpectedError(res, e);
     }
   },
-  // EN: Sending to the future kitchen queue persists an immutable unpaid Order and clears only this staff cart.
-  // FI: Lähetys tulevaan keittiöjonoon tallentaa muuttumattoman maksamattoman tilauksen ja tyhjentää vain tämän työntekijän ostoskorin.
+  // EN: A retired unpaid submission can replay a committed Order; a new Counter Order requires payment.
+  // FI: Poistettu maksamaton lähetys voi palauttaa tallennetun tilauksen; uusi kassatilaus edellyttää maksua.
   submitToKitchen: async (req, res) => {
     const tableNo = positiveInteger(req.body?.tableNo);
     const idempotencyKey = req.body?.idempotencyKey;
@@ -727,83 +730,30 @@ module.exports = {
       !CHECKOUT_KEY_PATTERN.test(idempotencyKey)
     )
       return res.status(400).send({ error: "idempotencyKey must be a UUID" });
-    if (process.env.ORD02_COUNTER_CHECKOUT_ENABLED === "false")
-      return res
-        .status(409)
-        .send({ error: "Counter Order bridge is disabled" });
-
-    const execute = () =>
-      prisma.$transaction(
-        async (tx) => {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${req.user.id}::int, ${tableNo}::int)`;
-          const existing = await tx.order.findUnique({
-            where: {
-              idempotencyScope_idempotencyKey: {
-                idempotencyScope: "COUNTER_KITCHEN_USER:" + req.user.id,
-                idempotencyKey: idempotencyKey.toLowerCase(),
-              },
-            },
-          });
-          if (existing) {
-            if (
-              existing.channel !== "COUNTER" ||
-              existing.tableNo !== tableNo ||
-              existing.billSaleId !== null
-            )
-              throw new CheckoutError(409, "Idempotency key conflict");
-            return {
-              orderId: existing.id,
-              status: existing.status,
-              total: existing.total,
-              replayed: true,
-            };
-          }
-          const snapshot = await loadCheckoutSnapshot(tx, req.user.id, tableNo);
-          const order = await createSubmittedCounterOrder(tx, {
-            actor: {
-              type: "STAFF",
-              userId: req.user.id,
-              level: req.user.level,
-            },
-            idempotencyKey,
-            tableNo,
-            lines: snapshot.lines,
-            amount: snapshot.amount,
-          });
-          const cartIds = snapshot.carts.map(({ id }) => id);
-          await tx.saleTempDetail.deleteMany({
-            where: { saleTempId: { in: cartIds } },
-          });
-          await tx.saleTemp.deleteMany({
-            where: { id: { in: cartIds }, userId: req.user.id, tableNo },
-          });
-          return {
-            orderId: order.id,
-            status: order.status,
-            total: order.total,
-            replayed: false,
-          };
-        },
-        { isolationLevel: "Serializable" },
-      );
-
     try {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          return res.send(await execute());
-        } catch (error) {
-          if (error?.code === "P2034" && attempt < 2) continue;
-          if (error?.code === "P2002" && attempt < 2) continue;
-          throw error;
-        }
+      const existing = await prisma.order.findUnique({
+        where: {
+          idempotencyScope_idempotencyKey: {
+            idempotencyScope: "COUNTER_KITCHEN_USER:" + req.user.id,
+            idempotencyKey: idempotencyKey.toLowerCase(),
+          },
+        },
+      });
+      if (existing) {
+        if (existing.channel !== "COUNTER" || existing.tableNo !== tableNo)
+          return res.status(409).send({ error: "Idempotency key conflict" });
+        return res.send({
+          orderId: existing.id,
+          status: existing.status,
+          total: existing.total,
+          replayed: true,
+        });
       }
+      return res.status(409).send({
+        error: "Payment is required before sending a Counter Order to Kitchen",
+        code: "PAYMENT_REQUIRED",
+      });
     } catch (error) {
-      if (error instanceof CheckoutError || error instanceof OrderDomainError)
-        return res.status(error.status).send({ error: error.message });
-      if (error?.code === "P2002" || error?.code === "P2034")
-        return res
-          .status(409)
-          .send({ error: "Order submission conflicted; retry" });
       return sendUnexpectedError(res, error);
     }
   },

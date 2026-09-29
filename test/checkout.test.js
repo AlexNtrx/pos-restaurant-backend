@@ -25,7 +25,7 @@ let ownerToken;
 let otherToken;
 const createdBillIds = new Set();
 const baseTable = 800000 + (Date.now() % 90000);
-const testTables = Array.from({ length: 20 }, (_, index) => baseTable + index);
+const testTables = Array.from({ length: 23 }, (_, index) => baseTable + index);
 let fixture;
 let organizationFixture;
 
@@ -113,13 +113,16 @@ const settleCounter = async (token, orderId, body) => {
 };
 
 const kitchenOrder = async (tableNo) => {
-  await createCart(tableNo);
-  const { response, payload } = await submitToKitchen(ownerToken, {
-    tableNo,
+  return submitOrder(prisma, {
+    actor: { type: "STAFF", userId: owner.id, level: owner.level },
     idempotencyKey: randomUUID(),
+    intent: {
+      channel: "COUNTER",
+      tableNo,
+      items: [{ foodId: food.id, quantity: 1 }],
+    },
+    confirmForKitchen: true,
   });
-  assert.equal(response.status, 200);
-  return prisma.order.findUnique({ where: { id: payload.orderId } });
 };
 
 const advanceOrder = (order, nextStatus) =>
@@ -132,24 +135,31 @@ const advanceOrder = (order, nextStatus) =>
 
 const servedOrder = async (tableNo) => {
   let order = await kitchenOrder(tableNo);
-  for (const status of ["CONFIRMED", "PREPARING", "READY", "SERVED"])
+  for (const status of ["PREPARING", "READY", "SERVED"])
     order = await advanceOrder(order, status);
   return order;
 };
 
-test("Counter settlement waits for SERVED, preserves a new cart, and receipts immutable snapshots", async () => {
+test("Counter payment and receipt work before service while Kitchen can finish the Order", async () => {
   let order = await kitchenOrder(testTables[13]);
-  for (const nextStatus of ["CONFIRMED", "PREPARING", "READY", "SERVED"]) {
-    const denied = await settleCounter(ownerToken, order.id, {
-      expectedVersion: order.version,
-      idempotencyKey: randomUUID(),
-      payType: "bank",
-    });
-    assert.equal(denied.response.status, 409);
-    assert.equal(denied.payload.code, "ORDER_NOT_PAYABLE");
-    order = await advanceOrder(order, nextStatus);
-  }
   const newCart = await createCart(testTables[13]);
+  const previewPath = `${apiBaseUrl}/counterOrder/${order.id}/prebill`;
+  const preview = await fetch(previewPath, {
+    method: "POST",
+    ...jsonRequest(ownerToken, {}),
+  });
+  assert.equal(preview.status, 200);
+  assert.equal(
+    Buffer.from(await preview.arrayBuffer())
+      .subarray(0, 4)
+      .toString(),
+    "%PDF",
+  );
+  const foreignPreview = await fetch(previewPath, {
+    method: "POST",
+    ...jsonRequest(otherToken, {}),
+  });
+  assert.equal(foreignPreview.status, 404);
   const body = {
     expectedVersion: order.version,
     idempotencyKey: randomUUID(),
@@ -184,19 +194,30 @@ test("Counter settlement waits for SERVED, preserves a new cart, and receipts im
       where: { id: order.id },
       include: { StatusHistory: { orderBy: { version: "asc" } } },
     });
-    assert.equal(paid.status, "COMPLETED");
+    assert.equal(paid.status, "CONFIRMED");
     assert.equal(paid.billSaleId, bill.id);
+    assert.ok(paid.paidAt);
+    const afterPaymentPreview = await fetch(previewPath, {
+      method: "POST",
+      ...jsonRequest(ownerToken, {}),
+    });
+    assert.equal(afterPaymentPreview.status, 404);
     assert.deepEqual(
       paid.StatusHistory.map(({ toStatus }) => toStatus),
-      [
-        "SUBMITTED",
-        "CONFIRMED",
-        "PREPARING",
-        "READY",
-        "SERVED",
-        "PAID",
-        "COMPLETED",
-      ],
+      ["SUBMITTED", "CONFIRMED", "CONFIRMED"],
+    );
+    assert.equal(
+      paid.StatusHistory.at(-1).reason,
+      "Payment recorded before service",
+    );
+    const kitchenQueue = await fetch(apiBaseUrl + "/orders?status=CONFIRMED", {
+      headers: bearer(otherToken),
+    });
+    assert.equal(kitchenQueue.status, 200);
+    assert.ok(
+      (await kitchenQueue.json()).results.some(
+        ({ id, version }) => id === order.id && version === paid.version,
+      ),
     );
     assert.ok(await prisma.saleTemp.findUnique({ where: { id: newCart.id } }));
     const pending = await fetch(
@@ -214,6 +235,59 @@ test("Counter settlement waits for SERVED, preserves a new cart, and receipts im
         .subarray(0, 4)
         .toString(),
       "%PDF",
+    );
+    const duplicate = await settleCounter(ownerToken, order.id, {
+      expectedVersion: paid.version,
+      idempotencyKey: randomUUID(),
+      payType: "bank",
+    });
+    assert.equal(duplicate.payload.code, "ORDER_NOT_PAYABLE");
+    await assert.rejects(
+      transitionOrder(prisma, {
+        actor: { type: "STAFF", userId: owner.id, level: owner.level },
+        orderId: order.id,
+        expectedVersion: paid.version,
+        nextStatus: "CANCELLED",
+        reason: "Customer changed mind",
+      }),
+      { code: "ORDER_ALREADY_PAID" },
+    );
+    let version = paid.version;
+    for (const nextStatus of ["PREPARING", "READY", "SERVED"]) {
+      const path =
+        nextStatus === "SERVED"
+          ? `/orders/${order.id}/serve`
+          : `/kitchen/orders/${order.id}/status`;
+      const action = await fetch(apiBaseUrl + path, {
+        method: "PATCH",
+        ...jsonRequest(otherToken, {
+          expectedVersion: version,
+          ...(nextStatus === "SERVED" ? {} : { nextStatus }),
+        }),
+      });
+      assert.equal(action.status, 200);
+      version = (await action.json()).result.version;
+    }
+    order = await prisma.order.findUnique({
+      where: { id: order.id },
+      include: { StatusHistory: { orderBy: { version: "asc" } } },
+    });
+    assert.equal(order.status, "COMPLETED");
+    assert.equal(order.billSaleId, bill.id);
+    assert.ok(order.servedAt);
+    assert.ok(order.completedAt);
+    assert.ok(order.paidAt < order.servedAt);
+    assert.deepEqual(
+      order.StatusHistory.map(({ toStatus }) => toStatus),
+      [
+        "SUBMITTED",
+        "CONFIRMED",
+        "CONFIRMED",
+        "PREPARING",
+        "READY",
+        "SERVED",
+        "COMPLETED",
+      ],
     );
   } finally {
     await prisma.food.update({
@@ -469,14 +543,15 @@ test("checkout ignores forged authority and finalizes only the authenticated sel
   });
   assert.ok(order);
   assert.equal(order.channel, "COUNTER");
-  assert.equal(order.status, "COMPLETED");
+  assert.equal(order.status, "CONFIRMED");
+  assert.ok(order.paidAt);
   assert.equal(order.createdByUserId, owner.id);
   assert.equal(order.total, expectedAmount);
   assert.equal(order.Items.length, 1);
   assert.equal(order.Items[0].Modifiers[0].foodSizeId, size.id);
   assert.deepEqual(
     order.StatusHistory.map(({ toStatus }) => toStatus),
-    ["SUBMITTED", "PAID", "COMPLETED"],
+    ["SUBMITTED", "CONFIRMED", "CONFIRMED"],
   );
   assert.equal(
     await prisma.saleTemp.count({
@@ -704,127 +779,20 @@ test("disabling the Counter bridge uses legacy checkout without deleting prior O
   assert.ok(await prisma.order.findUnique({ where: { id: existing.id } }));
 });
 
-test("sending a Counter cart persists one unpaid immutable Order and leaves other carts alone", async () => {
+test("legacy Counter send requires payment and leaves every cart untouched", async () => {
   const selected = testTables[7];
   await createCart(selected);
   await createCart(testTables[9]);
-  const otherResponse = await fetch(apiBaseUrl + "/saleTemp/create", {
-    method: "POST",
-    ...jsonRequest(otherToken, { tableNo: selected, foodId: food.id }),
-  });
-  assert.equal(otherResponse.status, 200);
   const key = randomUUID();
-  const { response, payload } = await submitToKitchen(ownerToken, {
-    tableNo: selected,
-    idempotencyKey: key,
-    userId: otherUser.id,
-    amount: 1,
-  });
-  assert.equal(response.status, 200);
-  assert.equal(payload.status, "SUBMITTED");
-  assert.equal(payload.total, food.price);
-  const order = await prisma.order.findUnique({
-    where: { id: payload.orderId },
-    include: { Items: true, StatusHistory: true },
-  });
-  assert.equal(order.billSaleId, null);
-  assert.equal(order.createdByUserId, owner.id);
-  assert.equal(order.Items.length, 1);
-  assert.equal(order.Items[0].foodName, food.name);
-  assert.equal(order.StatusHistory.length, 1);
-  assert.equal(
-    await prisma.billSale.count({
-      where: { userId: owner.id, tableNo: selected },
-    }),
-    0,
-  );
-  assert.equal(
-    await prisma.saleTemp.count({
-      where: { userId: owner.id, tableNo: selected },
-    }),
-    0,
-  );
-  assert.equal(
-    await prisma.saleTemp.count({
-      where: { userId: owner.id, tableNo: testTables[9] },
-    }),
-    1,
-  );
-  assert.equal(
-    await prisma.saleTemp.count({
-      where: { userId: otherUser.id, tableNo: selected },
-    }),
-    1,
-  );
-  const pending = await fetch(
-    apiBaseUrl + "/saleTemp/pendingCounterOrders?tableNo=" + selected,
-    {
-      headers: bearer(ownerToken),
-    },
-  );
-  assert.equal(pending.status, 200);
-  assert.ok((await pending.json()).results.some(({ id }) => id === order.id));
-  const hidden = await fetch(
-    apiBaseUrl + "/saleTemp/pendingCounterOrders?tableNo=" + selected,
-    {
-      headers: bearer(otherToken),
-    },
-  );
-  assert.equal(hidden.status, 200);
-  assert.ok(!(await hidden.json()).results.some(({ id }) => id === order.id));
-});
-
-test("concurrent kitchen submission with one key replays one Order without a BillSale", async () => {
-  const selected = testTables[11];
-  await createCart(selected);
-  const body = { tableNo: selected, idempotencyKey: randomUUID() };
-  const results = await Promise.all([
+  const body = { tableNo: selected, idempotencyKey: key };
+  const [first, retry] = await Promise.all([
     submitToKitchen(ownerToken, body),
     submitToKitchen(ownerToken, body),
   ]);
-  assert.deepEqual(
-    results.map(({ response }) => response.status),
-    [200, 200],
-  );
-  assert.equal(results[0].payload.orderId, results[1].payload.orderId);
-  assert.equal(
-    await prisma.order.count({
-      where: {
-        idempotencyScope: "COUNTER_KITCHEN_USER:" + owner.id,
-        idempotencyKey: body.idempotencyKey,
-      },
-    }),
-    1,
-  );
-  assert.equal(
-    await prisma.billSale.count({
-      where: { userId: owner.id, tableNo: selected },
-    }),
-    0,
-  );
-  const conflict = await submitToKitchen(ownerToken, {
-    ...body,
-    tableNo: testTables[12],
-  });
-  assert.equal(conflict.response.status, 409);
-});
-
-test("invalid kitchen submission preserves the cart and creates no Order", async () => {
-  const selected = testTables[12];
-  const cart = await createCart(selected);
-  await prisma.saleTempDetail.deleteMany({ where: { saleTempId: cart.id } });
-  const key = randomUUID();
-  const { response } = await submitToKitchen(ownerToken, {
-    tableNo: selected,
-    idempotencyKey: key,
-  });
-  assert.equal(response.status, 409);
-  assert.equal(
-    await prisma.saleTemp.count({
-      where: { userId: owner.id, tableNo: selected },
-    }),
-    1,
-  );
+  for (const result of [first, retry]) {
+    assert.equal(result.response.status, 409);
+    assert.equal(result.payload.code, "PAYMENT_REQUIRED");
+  }
   assert.equal(
     await prisma.order.count({
       where: {
@@ -833,6 +801,42 @@ test("invalid kitchen submission preserves the cart and creates no Order", async
       },
     }),
     0,
+  );
+  assert.equal(
+    await prisma.billSale.count({
+      where: { userId: owner.id, tableNo: selected },
+    }),
+    0,
+  );
+  assert.equal(
+    await prisma.saleTemp.count({
+      where: { userId: owner.id, tableNo: selected },
+    }),
+    1,
+  );
+  assert.equal(
+    await prisma.saleTemp.count({
+      where: { userId: owner.id, tableNo: testTables[9] },
+    }),
+    1,
+  );
+  const committed = await kitchenOrder(selected);
+  await prisma.order.update({
+    where: { id: committed.id },
+    data: { idempotencyScope: "COUNTER_KITCHEN_USER:" + owner.id },
+  });
+  const replay = await submitToKitchen(ownerToken, {
+    tableNo: selected,
+    idempotencyKey: committed.idempotencyKey,
+  });
+  assert.equal(replay.response.status, 200);
+  assert.equal(replay.payload.orderId, committed.id);
+  assert.equal(replay.payload.replayed, true);
+  assert.equal(
+    await prisma.saleTemp.count({
+      where: { userId: owner.id, tableNo: selected },
+    }),
+    1,
   );
 });
 
@@ -899,7 +903,7 @@ test("preview uses the authenticated table and streams a PDF without creating a 
   assert.equal(await prisma.billSale.count(), before);
 });
 
-test("browser draft quote and kitchen submit use catalog prices without creating SaleTemp", async () => {
+test("browser draft quote rejects unpaid kitchen submission without creating SaleTemp", async () => {
   const tableNo = testTables[18];
   const items = [
     { foodId: food.id, quantity: 2, foodSizeId: size.id, tasteId: null },
@@ -973,14 +977,13 @@ test("browser draft quote and kitchen submit use catalog prices without creating
     }),
   });
   assert.equal(staleSubmit.status, 409);
-  assert.equal((await staleSubmit.json()).code, "QUOTE_CHANGED");
+  assert.equal((await staleSubmit.json()).code, "PAYMENT_REQUIRED");
   const tamperedSubmit = await fetch(apiBaseUrl + "/counterOrder/submit", {
     method: "POST",
     ...jsonRequest(ownerToken, {
       tableNo,
       items,
       idempotencyKey,
-      expectedTotal: 2 * (food.price + size.moneyAdded),
       amount: 1,
     }),
   });
@@ -995,22 +998,35 @@ test("browser draft quote and kitchen submit use catalog prices without creating
         expectedTotal: 2 * (food.price + size.moneyAdded),
       }),
     });
-  const first = await send();
-  const second = await send();
-  assert.equal(first.status, 200);
-  assert.equal(second.status, 200);
-  const firstBody = await first.json();
-  assert.equal((await second.json()).orderId, firstBody.orderId);
-  assert.equal(firstBody.status, "SUBMITTED");
+  const [first, retry] = await Promise.all([send(), send()]);
+  for (const response of [first, retry]) {
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, "PAYMENT_REQUIRED");
+  }
+  assert.equal(
+    await prisma.order.count({
+      where: { idempotencyScope: "USER:" + owner.id, idempotencyKey },
+    }),
+    0,
+  );
   assert.equal(
     await prisma.saleTemp.count({ where: { userId: owner.id, tableNo } }),
     0,
   );
-  const order = await prisma.order.findUnique({
-    where: { id: firstBody.orderId },
+  const oldKey = randomUUID();
+  const oldOrder = await submitOrder(prisma, {
+    actor: { type: "STAFF", userId: owner.id, level: owner.level },
+    idempotencyKey: oldKey,
+    intent: { channel: "COUNTER", tableNo, items },
+    confirmForKitchen: true,
   });
-  assert.equal(order.billSaleId, null);
-  await prisma.order.delete({ where: { id: order.id } });
+  const replay = await fetch(apiBaseUrl + "/counterOrder/submit", {
+    method: "POST",
+    ...jsonRequest(ownerToken, { tableNo, items, idempotencyKey: oldKey }),
+  });
+  assert.equal(replay.status, 200);
+  assert.equal((await replay.json()).orderId, oldOrder.id);
+  await prisma.order.delete({ where: { id: oldOrder.id } });
 });
 
 test("browser draft checkout rejects a changed quote and atomically replays one paid bill", async () => {
@@ -1075,7 +1091,8 @@ test("browser draft checkout rejects a changed quote and atomically replays one 
     assert.equal(bill.BillSaleDetails[0].moneyAdded, size.moneyAdded);
     assert.equal(bill.BillSaleDetails[0].foodSizeId, size.id);
     assert.equal(bill.BillSaleDetails[0].tastedId, fixture.taste.id);
-    assert.equal(bill.Orders[0].status, "COMPLETED");
+    assert.equal(bill.Orders[0].status, "CONFIRMED");
+    assert.ok(bill.Orders[0].paidAt);
     assert.equal(
       await prisma.saleTemp.count({ where: { userId: owner.id, tableNo } }),
       0,
@@ -1090,6 +1107,363 @@ test("browser draft checkout rejects a changed quote and atomically replays one 
     await prisma.food.update({
       where: { id: food.id },
       data: { price: food.price },
+    });
+  }
+});
+
+test("cashier sees sent order history and may cancel only an owned unpaid order before preparation", async () => {
+  const cancellable = await kitchenOrder(testTables[20]);
+  const listPath = `${apiBaseUrl}/counterOrder/sent?tableNo=${testTables[20]}`;
+  const ownList = await fetch(listPath, { headers: bearer(ownerToken) });
+  assert.equal(ownList.status, 200);
+  assert.equal(ownList.headers.get("cache-control"), "no-store");
+  assert.ok(
+    (await ownList.json()).results.some(({ id }) => id === cancellable.id),
+  );
+  const activePath = `${listPath}&view=active`;
+  const historyPath = `${listPath}&view=history`;
+  const activeBefore = await fetch(activePath, {
+    headers: bearer(ownerToken),
+  });
+  assert.ok(
+    (await activeBefore.json()).results.some(({ id }) => id === cancellable.id),
+  );
+  const invalidView = await fetch(`${listPath}&view=unknown`, {
+    headers: bearer(ownerToken),
+  });
+  assert.equal(invalidView.status, 400);
+  assert.equal((await invalidView.json()).code, "INVALID_VIEW");
+  const foreignList = await fetch(listPath, { headers: bearer(otherToken) });
+  assert.equal(foreignList.status, 200);
+  assert.equal((await foreignList.json()).results.length, 0);
+
+  const detailPath = `${apiBaseUrl}/counterOrder/${cancellable.id}`;
+  const foreignDetail = await fetch(detailPath, {
+    headers: bearer(otherToken),
+  });
+  assert.equal(foreignDetail.status, 404);
+  const detail = await fetch(detailPath, { headers: bearer(ownerToken) });
+  assert.equal(detail.status, 200);
+  const snapshot = (await detail.json()).result;
+  assert.equal(snapshot.id, cancellable.id);
+  assert.equal(snapshot.items[0].name, food.name);
+  assert.deepEqual(
+    snapshot.history.map(({ toStatus }) => toStatus),
+    ["SUBMITTED", "CONFIRMED"],
+  );
+
+  const cancelPath = `${detailPath}/cancel`;
+  const foreignCancel = await fetch(cancelPath, {
+    method: "PATCH",
+    ...jsonRequest(otherToken, {
+      expectedVersion: snapshot.version,
+      reason: "Customer request",
+    }),
+  });
+  assert.equal(foreignCancel.status, 404);
+  const staleCancel = await fetch(cancelPath, {
+    method: "PATCH",
+    ...jsonRequest(ownerToken, {
+      expectedVersion: snapshot.version - 1,
+      reason: "Customer request",
+    }),
+  });
+  assert.equal(staleCancel.status, 409);
+  const cancelled = await fetch(cancelPath, {
+    method: "PATCH",
+    ...jsonRequest(ownerToken, {
+      expectedVersion: snapshot.version,
+      reason: "Customer request",
+    }),
+  });
+  assert.equal(cancelled.status, 200);
+  const cancelledOrder = (await cancelled.json()).result;
+  assert.equal(cancelledOrder.status, "CANCELLED");
+  assert.equal(cancelledOrder.history.at(-1).reason, "Customer request");
+  const cancelledList = await fetch(listPath, { headers: bearer(ownerToken) });
+  assert.equal(
+    (await cancelledList.json()).results.find(({ id }) => id === cancellable.id)
+      .status,
+    "CANCELLED",
+  );
+  const activeAfter = await fetch(activePath, {
+    headers: bearer(ownerToken),
+  });
+  assert.equal(
+    (await activeAfter.json()).results.some(({ id }) => id === cancellable.id),
+    false,
+  );
+  const historyAfter = await fetch(historyPath, {
+    headers: bearer(ownerToken),
+  });
+  assert.ok(
+    (await historyAfter.json()).results.some(({ id }) => id === cancellable.id),
+  );
+
+  const preparing = await advanceOrder(
+    await kitchenOrder(testTables[21]),
+    "PREPARING",
+  );
+  const preparingCancel = await fetch(
+    `${apiBaseUrl}/counterOrder/${preparing.id}/cancel`,
+    {
+      method: "PATCH",
+      ...jsonRequest(ownerToken, {
+        expectedVersion: preparing.version,
+        reason: "Customer request",
+      }),
+    },
+  );
+  assert.equal(preparingCancel.status, 409);
+  assert.equal((await preparingCancel.json()).code, "ORDER_NOT_CANCELLABLE");
+  const ready = await advanceOrder(preparing, "READY");
+  const readyCancel = await fetch(
+    `${apiBaseUrl}/counterOrder/${ready.id}/cancel`,
+    {
+      method: "PATCH",
+      ...jsonRequest(ownerToken, {
+        expectedVersion: ready.version,
+        reason: "Customer request",
+      }),
+    },
+  );
+  assert.equal(readyCancel.status, 409);
+  assert.equal((await readyCancel.json()).code, "ORDER_NOT_CANCELLABLE");
+
+  const payable = await kitchenOrder(testTables[22]);
+  const settled = await settleCounter(ownerToken, payable.id, {
+    expectedVersion: payable.version,
+    idempotencyKey: randomUUID(),
+    payType: "bank",
+  });
+  assert.equal(settled.response.status, 200);
+  const paidDetail = await fetch(`${apiBaseUrl}/counterOrder/${payable.id}`, {
+    headers: bearer(ownerToken),
+  });
+  const paid = (await paidDetail.json()).result;
+  assert.equal(paid.status, "CONFIRMED");
+  assert.ok(paid.paidAt);
+  const paidCancel = await fetch(
+    `${apiBaseUrl}/counterOrder/${payable.id}/cancel`,
+    {
+      method: "PATCH",
+      ...jsonRequest(ownerToken, {
+        expectedVersion: paid.version,
+        reason: "Customer request",
+      }),
+    },
+  );
+  assert.equal(paidCancel.status, 409);
+  let finished = paid;
+  for (const status of ["PREPARING", "READY", "SERVED"])
+    finished = await advanceOrder(finished, status);
+  assert.equal(finished.status, "COMPLETED");
+  const activeFinished = await fetch(
+    `${apiBaseUrl}/counterOrder/sent?tableNo=${testTables[22]}&view=active`,
+    { headers: bearer(ownerToken) },
+  );
+  assert.equal(
+    (await activeFinished.json()).results.some(({ id }) => id === payable.id),
+    false,
+  );
+  const historyFinished = await fetch(
+    `${apiBaseUrl}/counterOrder/sent?tableNo=${testTables[22]}&view=history`,
+    { headers: bearer(ownerToken) },
+  );
+  assert.ok(
+    (await historyFinished.json()).results.some(({ id }) => id === payable.id),
+  );
+});
+
+test("tableless takeaway uses its Order ID as pickup number and preserves Kitchen after payment", async () => {
+  const intent = {
+    serviceType: "TAKEAWAY",
+    items: [{ foodId: food.id, quantity: 1 }],
+  };
+  const quote = await fetch(`${apiBaseUrl}/counterOrder/quote`, {
+    method: "POST",
+    ...jsonRequest(ownerToken, intent),
+  });
+  assert.equal(quote.status, 200);
+  const quoted = (await quote.json()).results;
+  assert.equal(quoted.tableNo, null);
+
+  const fakeTable = await fetch(`${apiBaseUrl}/counterOrder/submit`, {
+    method: "POST",
+    ...jsonRequest(ownerToken, {
+      ...intent,
+      tableNo: 999,
+      idempotencyKey: randomUUID(),
+    }),
+  });
+  assert.equal(fakeTable.status, 400);
+  assert.equal((await fakeTable.json()).code, "INVALID_TAKEAWAY_LOCATION");
+
+  const unpaidAttempt = await fetch(`${apiBaseUrl}/counterOrder/submit`, {
+    method: "POST",
+    ...jsonRequest(ownerToken, {
+      ...intent,
+      expectedTotal: quoted.total,
+      idempotencyKey: randomUUID(),
+    }),
+  });
+  assert.equal(unpaidAttempt.status, 409);
+  assert.equal((await unpaidAttempt.json()).code, "PAYMENT_REQUIRED");
+  const existing = await submitOrder(prisma, {
+    actor: { type: "STAFF", userId: owner.id, level: owner.level },
+    idempotencyKey: randomUUID(),
+    intent: { channel: "COUNTER", ...intent },
+    confirmForKitchen: true,
+  });
+  const orderId = existing.id;
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  assert.equal(order.tableNo, null);
+  assert.equal(order.serviceType, "TAKEAWAY");
+  assert.equal(order.status, "CONFIRMED");
+
+  const sent = await fetch(
+    `${apiBaseUrl}/counterOrder/sent?serviceType=TAKEAWAY`,
+    { headers: bearer(ownerToken) },
+  );
+  assert.equal(sent.status, 200);
+  assert.ok((await sent.json()).results.some(({ id }) => id === orderId));
+  const foreign = await fetch(
+    `${apiBaseUrl}/counterOrder/sent?serviceType=TAKEAWAY`,
+    { headers: bearer(otherToken) },
+  );
+  assert.equal((await foreign.json()).results.length, 0);
+  const preview = await fetch(`${apiBaseUrl}/counterOrder/${orderId}/prebill`, {
+    method: "POST",
+    ...jsonRequest(ownerToken, {}),
+  });
+  assert.equal(preview.status, 200);
+
+  const payment = await settleCounter(ownerToken, orderId, {
+    expectedVersion: order.version,
+    idempotencyKey: randomUUID(),
+    payType: "bank",
+  });
+  assert.equal(payment.response.status, 200);
+  const bill = await prisma.billSale.findUnique({
+    where: { id: payment.payload.billId },
+  });
+  assert.equal(bill.tableNo, null);
+  assert.equal(bill.serviceType, "TAKEAWAY");
+  const paid = await prisma.order.findUnique({ where: { id: orderId } });
+  assert.equal(paid.status, "CONFIRMED");
+  assert.ok(paid.paidAt);
+  assert.equal(paid.billSaleId, bill.id);
+  const kitchen = await fetch(`${apiBaseUrl}/orders?status=CONFIRMED`, {
+    headers: bearer(ownerToken),
+  });
+  assert.ok((await kitchen.json()).results.some(({ id }) => id === orderId));
+  const receipt = await fetch(`${apiBaseUrl}/saleTemp/printBillAfterPay`, {
+    method: "POST",
+    ...jsonRequest(ownerToken, { billId: bill.id }),
+  });
+  assert.equal(receipt.status, 200);
+
+  const checkoutBody = {
+    ...intent,
+    expectedTotal: quoted.total,
+    idempotencyKey: randomUUID(),
+    payType: "bank",
+  };
+  const direct = await fetch(`${apiBaseUrl}/counterOrder/checkout`, {
+    method: "POST",
+    ...jsonRequest(ownerToken, checkoutBody),
+  });
+  assert.equal(direct.status, 200);
+  const directResult = await direct.json();
+  createdBillIds.add(directResult.billId);
+  const directOrder = await prisma.order.findUnique({
+    where: { id: directResult.pickupNo },
+  });
+  assert.equal(directOrder.serviceType, "TAKEAWAY");
+  assert.equal(directOrder.tableNo, null);
+  assert.equal(directOrder.status, "CONFIRMED");
+  assert.ok(directOrder.paidAt);
+  const replay = await fetch(`${apiBaseUrl}/counterOrder/checkout`, {
+    method: "POST",
+    ...jsonRequest(ownerToken, checkoutBody),
+  });
+  assert.equal((await replay.json()).pickupNo, directResult.pickupNo);
+});
+
+test("sent Counter list and detail include direct paid checkout and older browser submissions", async () => {
+  const actor = { type: "STAFF", userId: owner.id, level: owner.level };
+  const tableNo = testTables[0];
+  const intent = {
+    channel: "COUNTER",
+    tableNo,
+    items: [{ foodId: food.id, quantity: 1 }],
+  };
+  for (const status of ["SUBMITTED", "REJECTED", "CANCELLED"]) {
+    let order = await submitOrder(prisma, {
+      actor,
+      idempotencyKey: randomUUID(),
+      intent,
+    });
+    if (status !== "SUBMITTED")
+      order = await advanceOrderWithReason(order, status);
+    const view = status === "SUBMITTED" ? "active" : "history";
+    const list = await fetch(
+      `${apiBaseUrl}/counterOrder/sent?tableNo=${tableNo}&view=${view}`,
+      { headers: bearer(ownerToken) },
+    );
+    assert.equal(list.status, 200);
+    assert.ok((await list.json()).results.some(({ id }) => id === order.id));
+    const detail = await fetch(`${apiBaseUrl}/counterOrder/${order.id}`, {
+      headers: bearer(ownerToken),
+    });
+    assert.equal(detail.status, 200);
+    assert.equal((await detail.json()).result.status, status);
+    const foreign = await fetch(`${apiBaseUrl}/counterOrder/${order.id}`, {
+      headers: bearer(otherToken),
+    });
+    assert.equal(foreign.status, 404);
+  }
+  await createCart(tableNo);
+  const paid = await checkout(ownerToken, checkoutBody(tableNo));
+  assert.equal(paid.response.status, 200);
+  const direct = await prisma.order.findFirstOrThrow({
+    where: { billSaleId: paid.payload.billId },
+  });
+  const list = await fetch(
+    `${apiBaseUrl}/counterOrder/sent?tableNo=${tableNo}&view=active`,
+    { headers: bearer(ownerToken) },
+  );
+  assert.ok((await list.json()).results.some(({ id }) => id === direct.id));
+  const detail = await fetch(`${apiBaseUrl}/counterOrder/${direct.id}`, {
+    headers: bearer(ownerToken),
+  });
+  assert.equal(detail.status, 200);
+  assert.equal((await detail.json()).result.status, "CONFIRMED");
+  const kitchenQueue = await fetch(`${apiBaseUrl}/orders?status=CONFIRMED`, {
+    headers: bearer(otherToken),
+  });
+  assert.equal(kitchenQueue.status, 200);
+  assert.ok(
+    (await kitchenQueue.json()).results.some(({ id }) => id === direct.id),
+  );
+  let served = direct;
+  for (const status of ["PREPARING", "READY", "SERVED"])
+    served = await advanceOrder(served, status);
+  assert.equal(served.status, "COMPLETED");
+  assert.equal(served.billSaleId, paid.payload.billId);
+  const history = await fetch(
+    `${apiBaseUrl}/counterOrder/sent?tableNo=${tableNo}&view=history`,
+    { headers: bearer(ownerToken) },
+  );
+  assert.ok((await history.json()).results.some(({ id }) => id === direct.id));
+
+  async function advanceOrderWithReason(order, nextStatus) {
+    return transitionOrder(prisma, {
+      actor,
+      orderId: order.id,
+      expectedVersion: order.version,
+      nextStatus,
+      reason: "Customer changed their mind",
     });
   }
 });

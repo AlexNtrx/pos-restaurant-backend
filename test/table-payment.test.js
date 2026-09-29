@@ -75,6 +75,9 @@ before(async () => {
 after(async () => {
   await stopApiServer(server);
   await cleanupTestFixture(fixture);
+  await prisma.serviceCall.deleteMany({
+    where: { TableSession: { restaurantTableId: { in: tableIds } } },
+  });
   await prisma.tableSession.deleteMany({
     where: { restaurantTableId: { in: tableIds } },
   });
@@ -126,6 +129,9 @@ test("session payment combines orders once, closes session, revokes QR and repla
   const issued = await rotateToken(prisma, scope.session.id, 0);
   const first = await qrOrder(scope);
   const second = await qrOrder(scope);
+  const serviceCall = await prisma.serviceCall.create({
+    data: { tableSessionId: scope.session.id },
+  });
   const key = randomUUID();
   const body = {
     orders: [first, second].map((order) => ({
@@ -171,6 +177,11 @@ test("session payment combines orders once, closes session, revokes QR and repla
     where: { id: scope.session.id },
   });
   assert.equal(session.status, "CLOSED");
+  assert.equal(
+    (await prisma.serviceCall.findUnique({ where: { id: serviceCall.id } }))
+      .status,
+    "RESOLVED",
+  );
   assert.equal(session.qrTokenHash, null);
   assert.equal(await resolveQrAccess(prisma, issued.token), null);
   assert.equal(

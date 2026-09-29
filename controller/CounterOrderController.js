@@ -3,11 +3,16 @@ const { OrderDomainError } = require("../lib/order-domain");
 const { settleCounterOrder } = require("../lib/order-service");
 const { sendReceiptPdf } = require("../lib/receipt-pdf");
 const { rejectClientFinancialAuthority } = require("../lib/order-pricing");
+const { staffOrderDto } = require("../lib/staff-order-service");
 const {
+  cancelSentCounterOrder,
   checkoutCounterDraft,
+  counterOrderPrebill,
   draftBillLines,
+  getSentCounterOrder,
+  listSentCounterOrders,
   quoteCounterDraft,
-  submitOrder,
+  replayCounterKitchenSubmission,
   normalizeCounterDraftIntent,
 } = require("../lib/order-service");
 
@@ -71,10 +76,9 @@ module.exports = {
     try {
       rejectClientFinancialAuthority(req.body);
       const intent = normalizeCounterDraftIntent(req.body);
-      const order = await submitOrder(prisma, {
+      const order = await replayCounterKitchenSubmission(prisma, {
         actor: actorFor(req),
         idempotencyKey: req.body?.idempotencyKey,
-        expectedTotal: req.body?.expectedTotal,
         intent,
       });
       return res.send({
@@ -90,6 +94,7 @@ module.exports = {
     try {
       const {
         tableNo,
+        serviceType,
         items,
         idempotencyKey,
         payType,
@@ -101,7 +106,7 @@ module.exports = {
       const bill = await checkoutCounterDraft(prisma, {
         actor: actorFor(req),
         idempotencyKey,
-        intent: { tableNo, items },
+        intent: { tableNo, serviceType, items },
         expectedTotal,
         payType,
         inputMoney,
@@ -112,6 +117,9 @@ module.exports = {
         amount: bill.amount,
         inputMoney: bill.inputMoney,
         returnMoney: bill.returnMoney,
+        ...(bill.serviceType === "TAKEAWAY"
+          ? { pickupNo: bill.Orders[0].id }
+          : {}),
       });
     } catch (error) {
       return sendError(res, error);
@@ -131,6 +139,7 @@ module.exports = {
         {
           title: "Bill Preview",
           tableNo: snapshot.tableNo,
+          serviceType: snapshot.serviceType ?? "DINE_IN",
           date: new Date(),
           lines: draftBillLines(snapshot),
           amount: snapshot.total,
@@ -138,8 +147,92 @@ module.exports = {
           returnMoney: null,
           payType: null,
         },
-        `bill-preview-table-${snapshot.tableNo}.pdf`,
+        snapshot.serviceType === "TAKEAWAY"
+          ? "bill-preview-takeaway.pdf"
+          : `bill-preview-table-${snapshot.tableNo}.pdf`,
       );
+    } catch (error) {
+      return sendError(res, error);
+    }
+  },
+  sentPrebill: async (req, res) => {
+    try {
+      const order = await counterOrderPrebill(prisma, {
+        actor: actorFor(req),
+        orderId: Number(req.params.id),
+      });
+      const organization = await prisma.organization.findFirst();
+      if (!organization)
+        return res
+          .status(409)
+          .send({ error: "Organization is not configured" });
+      return sendReceiptPdf(
+        res,
+        organization,
+        {
+          title: "Bill Preview",
+          tableNo: order.tableNo,
+          serviceType: order.serviceType,
+          pickupNo: order.serviceType === "TAKEAWAY" ? order.id : null,
+          date: order.submittedAt,
+          lines: order.lines,
+          amount: order.total,
+          inputMoney: null,
+          returnMoney: null,
+          payType: null,
+        },
+        `bill-preview-order-${order.id}.pdf`,
+      );
+    } catch (error) {
+      return sendError(res, error);
+    }
+  },
+  listSent: async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      const results = await listSentCounterOrders(prisma, {
+        actor: actorFor(req),
+        tableNo: req.query.tableNo == null ? null : Number(req.query.tableNo),
+        serviceType: req.query.serviceType ?? "DINE_IN",
+        view: req.query.view ?? "all",
+      });
+      return res.send({ results });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  },
+  sentDetail: async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      const order = await getSentCounterOrder(prisma, {
+        actor: actorFor(req),
+        orderId: Number(req.params.id),
+      });
+      return res.send({ result: staffOrderDto(order, { history: true }) });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  },
+  cancelSent: async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      const body = req.body;
+      if (
+        !body ||
+        typeof body !== "object" ||
+        Array.isArray(body) ||
+        Object.keys(body).some(
+          (key) => !["expectedVersion", "reason"].includes(key),
+        )
+      )
+        return res.status(400).send({ error: "Invalid cancellation body" });
+      const order = await cancelSentCounterOrder(prisma, {
+        actor: actorFor(req),
+        orderId: Number(req.params.id),
+        expectedVersion: body.expectedVersion,
+        reason: body.reason,
+      });
+      return res.send({ result: staffOrderDto(order, { history: true }) });
     } catch (error) {
       return sendError(res, error);
     }
