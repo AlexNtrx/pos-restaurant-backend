@@ -66,6 +66,10 @@ after(async () => {
 test("anonymous QR menu, bounded submit, idempotent retry and scoped status", async () => {
   const { table, access } = await makeTable();
   const token = access.token;
+  await prisma.food.update({
+    where: { id: fixture.food.id },
+    data: { img: "qr-menu-photo.webp", detailImg: "qr-detail-poster.jpg" },
+  });
   const context = await request(`/qr/${token}/context`);
   assert.equal(context.status, 200);
   assert.equal(context.headers.get("cache-control"), "no-store");
@@ -77,7 +81,8 @@ test("anonymous QR menu, bounded submit, idempotent retry and scoped status", as
   );
   assert.equal(category.food[0].id, fixture.food.id);
   assert.equal(category.food[0].price, 20);
-  assert.equal(category.food[0].img, undefined);
+  assert.equal(category.food[0].img, "qr-menu-photo.webp");
+  assert.equal(category.food[0].detailImg, "qr-detail-poster.jpg");
   const key = randomUUID();
   const body = {
     idempotencyKey: key,

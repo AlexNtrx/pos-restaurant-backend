@@ -40,6 +40,7 @@ const validateFood = (body) => {
   const price = nonNegativeInteger(body?.price);
   const foodType = body?.foodType;
   const img = body?.img ?? "";
+  const detailImg = body?.detailImg;
 
   if (!foodTypeId) return { error: "foodTypeId must be a positive integer" };
   if (!name || name.length > 120)
@@ -51,8 +52,20 @@ const validateFood = (body) => {
   if (!validFoodTypes.has(foodType))
     return { error: "foodType must be food or drink" };
   if (!isSafeImageName(img)) return { error: "Invalid image filename" };
+  if (detailImg !== undefined && !isSafeImageName(detailImg))
+    return { error: "Invalid detail image filename" };
 
-  return { foodTypeId, name, remark, price, foodType, img };
+  // EN: Omitting detailImg keeps older clients compatible and preserves an existing detail image on update.
+  // FI: detailImg-kentän pois jättäminen säilyttää vanhojen asiakkaiden yhteensopivuuden ja olemassa olevan lisätietokuvan päivityksessä.
+  return {
+    foodTypeId,
+    name,
+    remark,
+    price,
+    foodType,
+    img,
+    ...(detailImg === undefined ? {} : { detailImg }),
+  };
 };
 
 // Coordinates active category exists behavior for this module.
@@ -71,15 +84,14 @@ const sendKnownError = (res, error) => {
   return false;
 };
 
-// Removes or clears old image using the existing workflow.
-const removeOldImage = async (oldImage, newImage, foodId) => {
-  if (!oldImage || oldImage === newImage || !isSafeImageName(oldImage)) return;
-
-  const sharedImageCount = await prisma.food.count({
-    where: { img: oldImage, id: { not: foodId } },
+// EN: Delete a replaced upload only when neither image field of any food still references it.
+// FI: Korvattu kuva poistetaan vain, kun yksikään annos ei enää viittaa siihen kummassakaan kuvakentässä.
+const removeUnreferencedImage = async (oldImage) => {
+  if (!oldImage || !isSafeImageName(oldImage)) return;
+  const referenceCount = await prisma.food.count({
+    where: { OR: [{ img: oldImage }, { detailImg: oldImage }] },
   });
-  if (sharedImageCount > 0) return;
-
+  if (referenceCount > 0) return;
   await fs.unlink(path.join(uploadDirectory, oldImage)).catch((error) => {
     if (error.code !== "ENOENT") throw error;
   });
@@ -172,7 +184,9 @@ module.exports = {
       }
 
       await prisma.food.update({ where: { id }, data });
-      await removeOldImage(food.img, data.img, id);
+      for (const image of new Set([food.img, food.detailImg])) {
+        await removeUnreferencedImage(image);
+      }
       return res.send({ message: "success" });
     } catch (error) {
       if (sendKnownError(res, error)) return;

@@ -101,6 +101,7 @@ test("food CRUD validates active category and preserves the requested image name
     remark: "Created",
     price: 25,
     img: "",
+    detailImg: "menu-details.png",
     foodType: "food",
   });
   assert.equal(createResponse.status, 201);
@@ -108,6 +109,7 @@ test("food CRUD validates active category and preserves the requested image name
     where: { name, status: "use" },
   });
   assert.ok(created);
+  assert.equal(created.detailImg, "menu-details.png");
   foodIds.push(created.id);
 
   const updateResponse = await fetch(`${apiBaseUrl}/food/update`, {
@@ -130,9 +132,36 @@ test("food CRUD validates active category and preserves the requested image name
       remark: updated.remark,
       price: updated.price,
       img: updated.img,
+      detailImg: updated.detailImg,
       foodType: updated.foodType,
     },
-    { remark: "Updated", price: 30, img: "", foodType: "drink" },
+    {
+      remark: "Updated",
+      price: 30,
+      img: "",
+      detailImg: "menu-details.png",
+      foodType: "drink",
+    },
+  );
+
+  const clearDetailResponse = await fetch(`${apiBaseUrl}/food/update`, {
+    method: "PUT",
+    headers: headersFor(admin),
+    body: JSON.stringify({
+      id: created.id,
+      foodTypeId: category.id,
+      name,
+      remark: "Updated",
+      price: 30,
+      img: "",
+      detailImg: "",
+      foodType: "drink",
+    }),
+  });
+  assert.equal(clearDetailResponse.status, 200);
+  assert.equal(
+    (await prisma.food.findUnique({ where: { id: created.id } })).detailImg,
+    "",
   );
 
   const listResponse = await fetch(`${apiBaseUrl}/food/list`, {
