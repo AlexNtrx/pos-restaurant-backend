@@ -10,7 +10,7 @@ The Express and Prisma API for counter sales, QR orders, table sessions, kitchen
 
 `v2.0.0` is a published source release. Project records include automated checks and browser verification for multiple workflows against disposable PostgreSQL. Production deployment checks and pilot acceptance remain outstanding.
 
-## Capabilities
+## Features
 
 - JWT authentication with active-account verification and `admin`, `user`, `waiter`, and `kitchen` roles.
 - Catalog, staff, and restaurant settings management with validated image uploads.
@@ -18,6 +18,17 @@ The Express and Prisma API for counter sales, QR orders, table sessions, kitchen
 - Table sessions, QR tokens, QR modes, and public customer APIs.
 - Staff inbox, kitchen actions, waiter ordering/serving, and service calls.
 - Counter dine-in/takeaway checkout, table-session settlement, PDF receipts, cancellation audit, and reports.
+
+### Staff roles
+
+| Role      | Backend permissions                                                                                                                                                                                           |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin`   | Staff and catalog management, restaurant settings, dashboard and reports, plus all operational workflows.                                                                                                     |
+| `user`    | Counter ordering and payments, order reads and operational transitions, kitchen preparation, table-session operations, waiter ordering, and service calls. No admin-only management or reports.               |
+| `waiter`  | Table reads and session opening, table ordering, order reads, confirmation/rejection/cancellation within domain rules, serving, and service calls. No counter payments or kitchen preparation.                |
+| `kitchen` | Order list/detail reads and `CONFIRMED → PREPARING → READY` transitions with version checks and recorded history. No order creation, confirmation, rejection, cancellation, serving, payments, or management. |
+
+Admins create and edit accounts through `/api/user/create` and `/api/user/update`. The frontend displays `kitchen` as **Keittiöhenkilökunta** and restricts it to the **Keittiö** board. Order read access includes statuses outside the kitchen queue; frontend navigation restrictions do not narrow that API permission. The backend reloads the active account and current database role rather than trusting JWT role claims. No migration is required for these role values because `User.level` is a String. Customers use QR session tokens without a staff account.
 
 ## Requirements
 
@@ -109,14 +120,6 @@ Staff requests use `Authorization: Bearer <token>`. Public QR endpoints use the 
 | Dashboard, bills, reports | `/api/dashboard/operations`, `/api/billSale/list`, `/api/report/*`                                      | Admin                                             |
 
 Waiters cannot perform payments. Server-side action rules also check the role, state, object scope, and expected version.
-
-### Kitchen staff access
-
-Admins can create or edit `kitchen` accounts through `/api/user/create` and `/api/user/update`. The frontend displays this role as **Keittiöhenkilökunta** under **Henkilöstö** and restricts these accounts to the **Keittiö** page after sign-in.
-
-This role can read `GET /api/orders` and `GET /api/orders/:orderId` using the existing DTOs and filters for queue loading and polling. Read access also includes statuses outside the kitchen queue. Status changes are limited to `CONFIRMED → PREPARING → READY` through `PATCH /api/kitchen/orders/:orderId/status`, with `expectedVersion` checks and recorded history.
-
-Kitchen staff cannot confirm, reject, cancel, or serve orders; create orders; process payments; or manage tables, QR settings, service calls, the catalog, reports, or staff accounts. The backend checks the active account and current database role even when the JWT contains an outdated role claim. Existing `admin/user/waiter` permissions remain unchanged. No new migration is required because `User.level` is a String.
 
 ## Order and payment rules
 
