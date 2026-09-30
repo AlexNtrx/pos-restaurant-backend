@@ -3,6 +3,7 @@ const prisma = require("../lib/prisma");
 
 const ROLE_ADMIN = "admin";
 const ROLE_USER = "user";
+const ROLE_WAITER = "waiter";
 
 // Loads token from request for the current workflow.
 const getTokenFromRequest = (req) => {
@@ -58,7 +59,7 @@ const isAuthen = async (req, res, next) => {
       },
     });
 
-    if (!user || ![ROLE_ADMIN, ROLE_USER].includes(user.level)) {
+    if (!user || ![ROLE_ADMIN, ROLE_USER, ROLE_WAITER].includes(user.level)) {
       return res.status(401).send({ error: "Unauthorized" });
     }
 
@@ -82,5 +83,9 @@ const allowRoles = (roles, errorMessage) => (req, res, next) => {
 
 const isAdmin = allowRoles([ROLE_ADMIN], "Only admin");
 const isStaff = allowRoles([ROLE_ADMIN, ROLE_USER], "Forbidden");
+const isServiceStaff = allowRoles(
+  [ROLE_ADMIN, ROLE_USER, ROLE_WAITER],
+  "Forbidden",
+);
 
-module.exports = { isAdmin, isAuthen, isStaff };
+module.exports = { isAdmin, isAuthen, isStaff, isServiceStaff };

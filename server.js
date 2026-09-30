@@ -35,26 +35,32 @@ const QrPublicController = require("./controller/QrPublicController");
 const StaffOrderController = require("./controller/StaffOrderController");
 const ServiceCallController = require("./controller/ServiceCallController");
 const KitchenOrderController = require("./controller/KitchenOrderController");
+const WaiterOrderController = require("./controller/WaiterOrderController");
 const TablePaymentController = require("./controller/TablePaymentController");
 const OrganizationController = require("./controller/OrganizationController");
 const BillSaleController = require("./controller/BillSaleController");
 const ReportController = require("./controller/ReportController");
 const DashboardController = require("./controller/DashboardController");
-const { isAdmin, isAuthen, isStaff } = require("./middleware/auth");
+const {
+  isAdmin,
+  isAuthen,
+  isStaff,
+  isServiceStaff,
+} = require("./middleware/auth");
 
 const dotenv = require("dotenv");
 dotenv.config();
 
 // EN: QR-01 raw access tokens are issued only to authenticated staff, never on a public route.
 // FI: QR-01:n alkuperäiset tunnisteet annetaan vain tunnistautuneelle henkilökunnalle, ei julkisella reitillä.
-app.get("/api/tables", isAuthen, isStaff, TableController.list);
+app.get("/api/tables", isAuthen, isServiceStaff, TableController.list);
 app.post("/api/tables", isAuthen, isAdmin, TableController.create);
 app.put("/api/tables/:tableId", isAuthen, isAdmin, TableController.update);
 app.delete("/api/tables/:tableId", isAuthen, isAdmin, TableController.remove);
 app.post(
   "/api/tables/:tableId/sessions",
   isAuthen,
-  isStaff,
+  isServiceStaff,
   TableController.openSession,
 );
 app.post(
@@ -93,26 +99,48 @@ app.get("/api/qr/:token/orders/:orderId", QrPublicController.order);
 app.get("/api/qr/:token/service-call", ServiceCallController.current);
 app.post("/api/qr/:token/service-call", ServiceCallController.create);
 
-app.get("/api/service-calls", isAuthen, isStaff, ServiceCallController.list);
+app.get(
+  "/api/service-calls",
+  isAuthen,
+  isServiceStaff,
+  ServiceCallController.list,
+);
 app.patch(
   "/api/service-calls/:callId/status",
   isAuthen,
-  isStaff,
+  isServiceStaff,
   ServiceCallController.changeStatus,
 );
 
-app.get("/api/orders", isAuthen, isStaff, StaffOrderController.list);
-app.get("/api/orders/:orderId", isAuthen, isStaff, StaffOrderController.detail);
+app.get(
+  "/api/waiter/menu",
+  isAuthen,
+  isServiceStaff,
+  WaiterOrderController.menu,
+);
+app.post(
+  "/api/waiter/orders",
+  isAuthen,
+  isServiceStaff,
+  WaiterOrderController.submit,
+);
+app.get("/api/orders", isAuthen, isServiceStaff, StaffOrderController.list);
+app.get(
+  "/api/orders/:orderId",
+  isAuthen,
+  isServiceStaff,
+  StaffOrderController.detail,
+);
 app.patch(
   "/api/orders/:orderId/status",
   isAuthen,
-  isStaff,
+  isServiceStaff,
   StaffOrderController.changeStatus,
 );
 app.patch(
   "/api/orders/:orderId/serve",
   isAuthen,
-  isStaff,
+  isServiceStaff,
   StaffOrderController.serve,
 );
 app.patch(
@@ -311,7 +339,7 @@ app.delete("/api/foodtype/remove/:id", isAuthen, isAdmin, (req, res) =>
 );
 
 //signIn
-app.get("/api/user/getLevelByToken", isAuthen, isStaff, (req, res) =>
+app.get("/api/user/getLevelByToken", isAuthen, isServiceStaff, (req, res) =>
   UserController.getLevelByToken(req, res),
 );
 app.get("/api/user/list", isAuthen, isAdmin, (req, res) =>

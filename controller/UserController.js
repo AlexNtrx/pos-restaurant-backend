@@ -11,7 +11,7 @@ const {
 
 dotenv.config();
 
-const validLevels = new Set(["admin", "user"]);
+const validLevels = new Set(["admin", "user", "waiter"]);
 const safeUserSelect = { id: true, name: true, username: true, level: true };
 
 // Coordinates positive integer behavior for this module.
@@ -91,7 +91,11 @@ module.exports = {
       }
 
       const user = await prisma.user.findFirst({
-        where: { username, status: "use", level: { in: ["admin", "user"] } },
+        where: {
+          username,
+          status: "use",
+          level: { in: ["admin", "user", "waiter"] },
+        },
         select: { ...safeUserSelect, password: true },
       });
       if (!user || !(await verifyPassword(password, user.password))) {

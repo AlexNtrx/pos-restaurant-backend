@@ -165,6 +165,7 @@ model BillSaleDetail {
 enum OrderChannel {
   COUNTER
   QR
+  STAFF
 }
 
 enum ServiceType {

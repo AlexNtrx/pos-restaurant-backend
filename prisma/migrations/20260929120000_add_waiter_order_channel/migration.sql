@@ -1,0 +1,1 @@
+ALTER TYPE "OrderChannel" ADD VALUE 'STAFF';
