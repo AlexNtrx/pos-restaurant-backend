@@ -511,6 +511,7 @@ module.exports = {
         include: {
           BillSaleDetails: { orderBy: { id: "asc" } },
           Orders: { select: { id: true }, orderBy: { id: "asc" }, take: 1 },
+          User: { select: { name: true } },
         },
       });
       if (!billSale) return res.status(404).send({ error: "Bill not found" });
@@ -519,7 +520,8 @@ module.exports = {
         res,
         organization,
         {
-          title: "Bill",
+          title: "Kuitti",
+          cashierName: billSale.User.name,
           billId: billSale.id,
           tableNo: billSale.tableNo,
           serviceType: billSale.serviceType,
@@ -560,7 +562,8 @@ module.exports = {
         res,
         organization,
         {
-          title: "Bill Preview",
+          title: "Esilasku",
+          cashierName: req.user.name,
           tableNo,
           date: new Date(),
           lines: snapshot.lines,

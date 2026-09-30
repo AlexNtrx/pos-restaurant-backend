@@ -137,7 +137,8 @@ module.exports = {
         res,
         organization,
         {
-          title: "Bill Preview",
+          title: "Esilasku",
+          cashierName: req.user.name,
           tableNo: snapshot.tableNo,
           serviceType: snapshot.serviceType ?? "DINE_IN",
           date: new Date(),
@@ -170,7 +171,8 @@ module.exports = {
         res,
         organization,
         {
-          title: "Bill Preview",
+          title: "Esilasku",
+          cashierName: req.user.name,
           tableNo: order.tableNo,
           serviceType: order.serviceType,
           pickupNo: order.serviceType === "TAKEAWAY" ? order.id : null,

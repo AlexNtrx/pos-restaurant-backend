@@ -40,6 +40,38 @@ test("receipt renderer creates PDFs when the logo is missing or an unsafe path",
 test("receipt renderer propagates rendering failures", async () => {
   await assert.rejects(
     renderReceiptPdf({ ...organization, logo: "" }, { ...receipt, date: {} }),
-    /toISOString/,
+    /Invalid time value/,
   );
+});
+
+test("long receipt snapshots fit on one narrow page without changing stored values", async () => {
+  const line = Object.freeze({
+    foodName:
+      "Pitkään haudutettu suomalainen naudanlihapata perunoiden ja kauden kasvisten kera",
+    foodSizeName: "Suuri annos kahdelle hengelle",
+    tasteName: "Gluteeniton, ilman sipulia, kastike erillisessä astiassa",
+    price: 20,
+    moneyAdded: 3,
+  });
+  const lines = Object.freeze(
+    Array.from({ length: 30 }, (_, index) =>
+      Object.freeze({ ...line, foodId: index % 15 }),
+    ),
+  );
+  for (const payType of ["cash", "bank"]) {
+    const snapshot = Object.freeze({
+      ...receipt,
+      lines,
+      payType,
+      amount: 690,
+      inputMoney: 700,
+      returnMoney: 10,
+    });
+    const before = JSON.stringify(snapshot);
+    const pdf = await renderReceiptPdf(organization, snapshot);
+    const source = pdf.toString("latin1");
+    assert.equal((source.match(/\/Type \/Page\b/g) ?? []).length, 1);
+    assert.match(source, /\/MediaBox \[0 0 226\.77 /);
+    assert.equal(JSON.stringify(snapshot), before);
+  }
 });
