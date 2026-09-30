@@ -40,12 +40,6 @@ const headersFor = (user) => ({
   "Content-Type": "application/json",
 });
 
-// Coordinates json request behavior for this module.
-const jsonRequest = (user, body) => ({
-  headers: headersFor(user),
-  body: JSON.stringify(body),
-});
-
 // Creates test fixture with the current contract.
 const createTestFixture = async () => {
   const marker = `test-${randomUUID()}`;
@@ -224,7 +218,6 @@ module.exports = {
   signToken,
   bearer,
   headersFor,
-  jsonRequest,
   createTestFixture,
   cleanupTestFixture,
   beginOrganizationFixture,

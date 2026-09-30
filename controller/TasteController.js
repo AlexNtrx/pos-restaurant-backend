@@ -1,11 +1,9 @@
 const { Prisma } = require("@prisma/client");
 const prisma = require("../lib/prisma");
-
-// Coordinates positive integer behavior for this module.
-const positiveInteger = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-};
+const {
+  positiveInteger,
+  activeCategoryExists,
+} = require("../lib/catalog-validation");
 
 // Validates taste fields before persistence.
 const validateTaste = (body) => {
@@ -19,13 +17,6 @@ const validateTaste = (body) => {
     return { error: "Remark must be at most 500 characters" };
   return { foodTypeId, name, remark };
 };
-
-// Coordinates active category exists behavior for this module.
-const activeCategoryExists = (client, id) =>
-  client.foodType.findFirst({
-    where: { id, status: "use" },
-    select: { id: true },
-  });
 // Coordinates active name exists behavior for this module.
 const activeNameExists = (client, foodTypeId, name, excludeId) =>
   client.taste.findFirst({

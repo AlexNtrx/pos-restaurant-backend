@@ -1,13 +1,11 @@
 const { Prisma } = require("@prisma/client");
 const prisma = require("../lib/prisma");
+const {
+  positiveInteger,
+  activeCategoryExists,
+} = require("../lib/catalog-validation");
 
 const MAX_MONEY_ADDED = 10_000_000;
-
-// Coordinates positive integer behavior for this module.
-const positiveInteger = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-};
 
 // Coordinates valid money behavior for this module.
 const validMoney = (value) => {
@@ -32,13 +30,6 @@ const validateSize = (body) => {
     return { error: "moneyAdded must be a whole number from 0 to 10000000" };
   return { foodTypeId, name, remark, moneyAdded };
 };
-
-// Coordinates active category exists behavior for this module.
-const activeCategoryExists = (client, id) =>
-  client.foodType.findFirst({
-    where: { id, status: "use" },
-    select: { id: true },
-  });
 // Coordinates active name exists behavior for this module.
 const activeNameExists = (client, foodTypeId, name, excludeId) =>
   client.foodSize.findFirst({

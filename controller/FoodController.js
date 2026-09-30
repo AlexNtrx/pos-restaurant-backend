@@ -1,4 +1,8 @@
 const prisma = require("../lib/prisma");
+const {
+  positiveInteger,
+  activeCategoryExists,
+} = require("../lib/catalog-validation");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { storeImage, validateImageFile } = require("../lib/image-upload");
@@ -7,12 +11,6 @@ const MAX_PRICE = 10_000_000;
 const MAX_PAGE_SIZE = 100;
 const validFoodTypes = new Set(["food", "drink"]);
 const uploadDirectory = path.resolve("uploads");
-
-// Coordinates positive integer behavior for this module.
-const positiveInteger = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-};
 
 // Coordinates non negative integer behavior for this module.
 const nonNegativeInteger = (value) => {
@@ -67,13 +65,6 @@ const validateFood = (body) => {
     ...(detailImg === undefined ? {} : { detailImg }),
   };
 };
-
-// Coordinates active category exists behavior for this module.
-const activeCategoryExists = (client, id) =>
-  client.foodType.findFirst({
-    where: { id, status: "use" },
-    select: { id: true },
-  });
 
 // Coordinates send known error behavior for this module.
 const sendKnownError = (res, error) => {

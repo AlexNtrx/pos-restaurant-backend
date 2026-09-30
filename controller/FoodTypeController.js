@@ -1,11 +1,6 @@
 const { Prisma } = require("@prisma/client");
 const prisma = require("../lib/prisma");
-
-// Coordinates positive integer behavior for this module.
-const positiveInteger = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-};
+const { positiveInteger } = require("../lib/catalog-validation");
 
 // Validates food-type fields before persistence.
 const validateFields = (body) => {

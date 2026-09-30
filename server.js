@@ -157,204 +157,247 @@ app.get(
   isAdmin,
   DashboardController.operations,
 );
-app.post("/api/report/sumMonthly", isAuthen, isAdmin, (req, res) =>
-  ReportController.sumMonthly(req, res),
+app.post(
+  "/api/report/sumMonthly",
+  isAuthen,
+  isAdmin,
+  ReportController.sumMonthly,
 );
-app.post("/api/report/dailySales", isAuthen, isAdmin, (req, res) =>
-  ReportController.sumPerDayInYearAndMonth(req, res),
+app.post(
+  "/api/report/dailySales",
+  isAuthen,
+  isAdmin,
+  ReportController.sumPerDayInYearAndMonth,
 );
 
 //billSale
-app.post("/api/billSale/list", isAuthen, isAdmin, (req, res) =>
-  BillSaleController.list(req, res),
-);
-app.delete("/api/billSale/remove/:id", isAuthen, isAdmin, (req, res) =>
-  BillSaleController.remove(req, res),
+app.post("/api/billSale/list", isAuthen, isAdmin, BillSaleController.list);
+app.delete(
+  "/api/billSale/remove/:id",
+  isAuthen,
+  isAdmin,
+  BillSaleController.remove,
 );
 
 //organization
-app.post("/api/organization/upload", isAuthen, isAdmin, (req, res) =>
-  OrganizationController.upload(req, res),
+app.post(
+  "/api/organization/upload",
+  isAuthen,
+  isAdmin,
+  OrganizationController.upload,
 );
-app.post("/api/organization/create", isAuthen, isAdmin, (req, res) =>
-  OrganizationController.create(req, res),
+app.post(
+  "/api/organization/create",
+  isAuthen,
+  isAdmin,
+  OrganizationController.create,
 );
-app.get("/api/organization/info", isAuthen, isAdmin, (req, res) =>
-  OrganizationController.info(req, res),
+app.get(
+  "/api/organization/info",
+  isAuthen,
+  isAdmin,
+  OrganizationController.info,
 );
 
 //saleTemp
-app.post("/api/counterOrder/quote", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.quote(req, res),
+app.post(
+  "/api/counterOrder/quote",
+  isAuthen,
+  isStaff,
+  CounterOrderController.quote,
 );
-app.get("/api/counterOrder/options/:foodId", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.options(req, res),
+app.get(
+  "/api/counterOrder/options/:foodId",
+  isAuthen,
+  isStaff,
+  CounterOrderController.options,
 );
-app.post("/api/counterOrder/submit", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.submit(req, res),
+app.post(
+  "/api/counterOrder/submit",
+  isAuthen,
+  isStaff,
+  CounterOrderController.submit,
 );
-app.post("/api/counterOrder/checkout", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.checkout(req, res),
+app.post(
+  "/api/counterOrder/checkout",
+  isAuthen,
+  isStaff,
+  CounterOrderController.checkout,
 );
-app.post("/api/counterOrder/prebill", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.prebill(req, res),
+app.post(
+  "/api/counterOrder/prebill",
+  isAuthen,
+  isStaff,
+  CounterOrderController.prebill,
 );
-app.get("/api/counterOrder/sent", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.listSent(req, res),
+app.get(
+  "/api/counterOrder/sent",
+  isAuthen,
+  isStaff,
+  CounterOrderController.listSent,
 );
-app.get("/api/counterOrder/:id", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.sentDetail(req, res),
+app.get(
+  "/api/counterOrder/:id",
+  isAuthen,
+  isStaff,
+  CounterOrderController.sentDetail,
 );
-app.patch("/api/counterOrder/:id/cancel", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.cancelSent(req, res),
+app.patch(
+  "/api/counterOrder/:id/cancel",
+  isAuthen,
+  isStaff,
+  CounterOrderController.cancelSent,
 );
-app.post("/api/counterOrder/:id/prebill", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.sentPrebill(req, res),
+app.post(
+  "/api/counterOrder/:id/prebill",
+  isAuthen,
+  isStaff,
+  CounterOrderController.sentPrebill,
 );
-app.post("/api/counterOrder/:id/settle", isAuthen, isStaff, (req, res) =>
-  CounterOrderController.settle(req, res),
+app.post(
+  "/api/counterOrder/:id/settle",
+  isAuthen,
+  isStaff,
+  CounterOrderController.settle,
 );
 
-app.post("/api/saleTemp/printBillAfterPay", isAuthen, isStaff, (req, res) =>
-  SaleTempController.printBillAfterPay(req, res),
+app.post(
+  "/api/saleTemp/printBillAfterPay",
+  isAuthen,
+  isStaff,
+  SaleTempController.printBillAfterPay,
 );
-app.post("/api/saleTemp/endSale", isAuthen, isStaff, (req, res) =>
-  SaleTempController.endSale(req, res),
+app.post(
+  "/api/saleTemp/endSale",
+  isAuthen,
+  isStaff,
+  SaleTempController.endSale,
 );
-app.post("/api/saleTemp/submitToKitchen", isAuthen, isStaff, (req, res) =>
-  SaleTempController.submitToKitchen(req, res),
+app.post(
+  "/api/saleTemp/submitToKitchen",
+  isAuthen,
+  isStaff,
+  SaleTempController.submitToKitchen,
 );
-app.get("/api/saleTemp/pendingCounterOrders", isAuthen, isStaff, (req, res) =>
-  SaleTempController.pendingCounterOrders(req, res),
+app.get(
+  "/api/saleTemp/pendingCounterOrders",
+  isAuthen,
+  isStaff,
+  SaleTempController.pendingCounterOrders,
 );
-app.post("/api/saleTemp/printBillBeforePay", isAuthen, isStaff, (req, res) =>
-  SaleTempController.printBillBeforePay(req, res),
+app.post(
+  "/api/saleTemp/printBillBeforePay",
+  isAuthen,
+  isStaff,
+  SaleTempController.printBillBeforePay,
 );
 app.delete(
   "/api/saleTemp/removeSaleTempDetailModal",
   isAuthen,
   isStaff,
-  (req, res) => SaleTempController.removeSaleTempDetailModal(req, res),
+  SaleTempController.removeSaleTempDetailModal,
 );
-app.post("/api/saleTemp/createSaleTempDetail", isAuthen, isStaff, (req, res) =>
-  SaleTempController.createSaleTempDetail(req, res),
+app.post(
+  "/api/saleTemp/createSaleTempDetail",
+  isAuthen,
+  isStaff,
+  SaleTempController.createSaleTempDetail,
 );
-app.put("/api/saleTemp/selectSize", isAuthen, isStaff, (req, res) =>
-  SaleTempController.selectSize(req, res),
+app.put(
+  "/api/saleTemp/selectSize",
+  isAuthen,
+  isStaff,
+  SaleTempController.selectSize,
 );
-app.put("/api/saleTemp/unSelectTaste", isAuthen, isStaff, (req, res) =>
-  SaleTempController.unSelectTaste(req, res),
+app.put(
+  "/api/saleTemp/unSelectTaste",
+  isAuthen,
+  isStaff,
+  SaleTempController.unSelectTaste,
 );
-app.put("/api/saleTemp/selectTaste", isAuthen, isStaff, (req, res) =>
-  SaleTempController.selectTaste(req, res),
+app.put(
+  "/api/saleTemp/selectTaste",
+  isAuthen,
+  isStaff,
+  SaleTempController.selectTaste,
 );
-app.get("/api/saleTemp/info/:id", isAuthen, isStaff, (req, res) =>
-  SaleTempController.info(req, res),
-);
+app.get("/api/saleTemp/info/:id", isAuthen, isStaff, SaleTempController.info);
 app.post(
   "/api/saleTemp/generateSaleTempDetail",
   isAuthen,
   isStaff,
-  (req, res) => SaleTempController.generateSaleTempDetail(req, res),
+  SaleTempController.generateSaleTempDetail,
 );
-app.put("/api/saleTemp/updateQty", isAuthen, isStaff, (req, res) =>
-  SaleTempController.updateQty(req, res),
+app.put(
+  "/api/saleTemp/updateQty",
+  isAuthen,
+  isStaff,
+  SaleTempController.updateQty,
 );
-app.delete("/api/saleTemp/removeAll", isAuthen, isStaff, (req, res) =>
-  SaleTempController.removeAll(req, res),
+app.delete(
+  "/api/saleTemp/removeAll",
+  isAuthen,
+  isStaff,
+  SaleTempController.removeAll,
 );
-app.delete("/api/saleTemp/remove/:id", isAuthen, isStaff, (req, res) =>
-  SaleTempController.remove(req, res),
+app.delete(
+  "/api/saleTemp/remove/:id",
+  isAuthen,
+  isStaff,
+  SaleTempController.remove,
 );
-app.get("/api/saleTemp/list/", isAuthen, isStaff, (req, res) =>
-  SaleTempController.list(req, res),
-);
-app.post("/api/saleTemp/create", isAuthen, isStaff, (req, res) =>
-  SaleTempController.create(req, res),
-);
+app.get("/api/saleTemp/list/", isAuthen, isStaff, SaleTempController.list);
+app.post("/api/saleTemp/create", isAuthen, isStaff, SaleTempController.create);
 
 //food
-app.post("/api/food/paginate", isAuthen, isAdmin, (req, res) =>
-  FoodController.paginate(req, res),
-);
-app.get("/api/food/filter/:foodType", isAuthen, isStaff, (req, res) =>
-  FoodController.filter(req, res),
-);
-app.post("/api/food/upload", isAuthen, isAdmin, (req, res) =>
-  FoodController.upload(req, res),
-);
-app.post("/api/food/create", isAuthen, isAdmin, (req, res) =>
-  FoodController.create(req, res),
-);
-app.get("/api/food/list", isAuthen, isAdmin, (req, res) =>
-  FoodController.list(req, res),
-);
-app.delete("/api/food/remove/:id", isAuthen, isAdmin, (req, res) =>
-  FoodController.remove(req, res),
-);
-app.put("/api/food/update", isAuthen, isAdmin, (req, res) =>
-  FoodController.update(req, res),
-);
+app.post("/api/food/paginate", isAuthen, isAdmin, FoodController.paginate);
+app.get("/api/food/filter/:foodType", isAuthen, isStaff, FoodController.filter);
+app.post("/api/food/upload", isAuthen, isAdmin, FoodController.upload);
+app.post("/api/food/create", isAuthen, isAdmin, FoodController.create);
+app.get("/api/food/list", isAuthen, isAdmin, FoodController.list);
+app.delete("/api/food/remove/:id", isAuthen, isAdmin, FoodController.remove);
+app.put("/api/food/update", isAuthen, isAdmin, FoodController.update);
 //foodtaste
-app.post("/api/taste/create", isAuthen, isAdmin, (req, res) =>
-  TasteController.create(req, res),
-);
-app.get("/api/taste/list", isAuthen, isAdmin, (req, res) =>
-  TasteController.list(req, res),
-);
-app.delete("/api/taste/remove/:id", isAuthen, isAdmin, (req, res) =>
-  TasteController.remove(req, res),
-);
-app.put("/api/taste/update", isAuthen, isAdmin, (req, res) =>
-  TasteController.update(req, res),
-);
+app.post("/api/taste/create", isAuthen, isAdmin, TasteController.create);
+app.get("/api/taste/list", isAuthen, isAdmin, TasteController.list);
+app.delete("/api/taste/remove/:id", isAuthen, isAdmin, TasteController.remove);
+app.put("/api/taste/update", isAuthen, isAdmin, TasteController.update);
 //foodsize
-app.post("/api/foodSize/create", isAuthen, isAdmin, (req, res) =>
-  foodSizeController.create(req, res),
+app.post("/api/foodSize/create", isAuthen, isAdmin, foodSizeController.create);
+app.get("/api/foodSize/list", isAuthen, isAdmin, foodSizeController.list);
+app.delete(
+  "/api/foodSize/remove/:id",
+  isAuthen,
+  isAdmin,
+  foodSizeController.remove,
 );
-app.get("/api/foodSize/list", isAuthen, isAdmin, (req, res) =>
-  foodSizeController.list(req, res),
-);
-app.delete("/api/foodSize/remove/:id", isAuthen, isAdmin, (req, res) =>
-  foodSizeController.remove(req, res),
-);
-app.put("/api/foodSize/update", isAuthen, isAdmin, (req, res) =>
-  foodSizeController.update(req, res),
-);
+app.put("/api/foodSize/update", isAuthen, isAdmin, foodSizeController.update);
 //foodtype
 
-app.post("/api/foodtype/create", isAuthen, isAdmin, (req, res) =>
-  foodTypeController.create(req, res),
-);
-app.get("/api/foodType/list", isAuthen, isAdmin, (req, res) =>
-  foodTypeController.list(req, res),
-);
-app.put("/api/foodtype/update", isAuthen, isAdmin, (req, res) =>
-  foodTypeController.update(req, res),
-);
+app.post("/api/foodtype/create", isAuthen, isAdmin, foodTypeController.create);
+app.get("/api/foodType/list", isAuthen, isAdmin, foodTypeController.list);
+app.put("/api/foodtype/update", isAuthen, isAdmin, foodTypeController.update);
 
 //remove
-app.delete("/api/foodtype/remove/:id", isAuthen, isAdmin, (req, res) =>
-  foodTypeController.remove(req, res),
+app.delete(
+  "/api/foodtype/remove/:id",
+  isAuthen,
+  isAdmin,
+  foodTypeController.remove,
 );
 
 //signIn
-app.get("/api/user/getLevelByToken", isAuthen, isServiceStaff, (req, res) =>
-  UserController.getLevelByToken(req, res),
+app.get(
+  "/api/user/getLevelByToken",
+  isAuthen,
+  isServiceStaff,
+  UserController.getLevelByToken,
 );
-app.get("/api/user/list", isAuthen, isAdmin, (req, res) =>
-  UserController.list(req, res),
-);
-app.put("/api/user/update", isAuthen, isAdmin, (req, res) =>
-  UserController.update(req, res),
-);
-app.delete("/api/user/remove/:id", isAuthen, isAdmin, (req, res) =>
-  UserController.remove(req, res),
-);
-app.post("/api/user/create", isAuthen, isAdmin, (req, res) =>
-  UserController.create(req, res),
-);
-app.post("/api/user/signIn", (req, res) => UserController.signIn(req, res));
+app.get("/api/user/list", isAuthen, isAdmin, UserController.list);
+app.put("/api/user/update", isAuthen, isAdmin, UserController.update);
+app.delete("/api/user/remove/:id", isAuthen, isAdmin, UserController.remove);
+app.post("/api/user/create", isAuthen, isAdmin, UserController.create);
+app.post("/api/user/signIn", UserController.signIn);
 
 // Coordinates start server behavior for this module.
 const startServer = (port = 3001) =>
