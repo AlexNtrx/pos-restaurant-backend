@@ -112,11 +112,11 @@ Waiters cannot perform payments. Server-side action rules also check the role, s
 
 ### Kitchen staff access
 
-แอดมินสร้างหรือแก้บัญชี role `kitchen` ผ่าน `/api/user/create` และ `/api/user/update` ได้. Frontend แสดงชื่อ **Keittiöhenkilökunta** ในหน้า Henkilöstö และให้บัญชีนี้ Login เข้าเฉพาะหน้า **Keittiö**.
+Admins can create or edit `kitchen` accounts through `/api/user/create` and `/api/user/update`. The frontend displays this role as **Keittiöhenkilökunta** under **Henkilöstö** and restricts these accounts to the **Keittiö** page after sign-in.
 
-Backend ให้ role นี้อ่าน `GET /api/orders` และ `GET /api/orders/:orderId` ตาม DTO/filter เดิมสำหรับคิวและ polling; สิทธิ์อ่านรวมสถานะนอกคิวด้วย. การเปลี่ยนสถานะอนุญาตเฉพาะ `CONFIRMED → PREPARING → READY` ผ่าน `PATCH /api/kitchen/orders/:orderId/status` พร้อมตรวจ `expectedVersion` และบันทึก history.
+This role can read `GET /api/orders` and `GET /api/orders/:orderId` using the existing DTOs and filters for queue loading and polling. Read access also includes statuses outside the kitchen queue. Status changes are limited to `CONFIRMED → PREPARING → READY` through `PATCH /api/kitchen/orders/:orderId/status`, with `expectedVersion` checks and recorded history.
 
-Role นี้ไม่สามารถ confirm/reject/cancel/serve, สร้างออเดอร์, ชำระเงิน, จัดการโต๊ะ/QR, service calls, catalog, reports หรือบัญชีพนักงาน. Backend ตรวจบัญชีที่ active และ role ปัจจุบันจากฐานข้อมูล แม้ JWT จะมี role claim เก่า. `admin/user/waiter` คงสิทธิ์เดิม และไม่มี migration ใหม่สำหรับ role นี้ เพราะ `User.level` เป็น String.
+Kitchen staff cannot confirm, reject, cancel, or serve orders; create orders; process payments; or manage tables, QR settings, service calls, the catalog, reports, or staff accounts. The backend checks the active account and current database role even when the JWT contains an outdated role claim. Existing `admin/user/waiter` permissions remain unchanged. No new migration is required because `User.level` is a String.
 
 ## Order and payment rules
 
