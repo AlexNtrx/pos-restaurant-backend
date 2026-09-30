@@ -46,6 +46,8 @@ const {
   isAuthen,
   isStaff,
   isServiceStaff,
+  isOrderReader,
+  isKitchenStaff,
 } = require("./middleware/auth");
 
 const dotenv = require("dotenv");
@@ -124,11 +126,11 @@ app.post(
   isServiceStaff,
   WaiterOrderController.submit,
 );
-app.get("/api/orders", isAuthen, isServiceStaff, StaffOrderController.list);
+app.get("/api/orders", isAuthen, isOrderReader, StaffOrderController.list);
 app.get(
   "/api/orders/:orderId",
   isAuthen,
-  isServiceStaff,
+  isOrderReader,
   StaffOrderController.detail,
 );
 app.patch(
@@ -146,7 +148,7 @@ app.patch(
 app.patch(
   "/api/kitchen/orders/:orderId/status",
   isAuthen,
-  isStaff,
+  isKitchenStaff,
   KitchenOrderController.changeStatus,
 );
 
@@ -387,12 +389,7 @@ app.delete(
 );
 
 //signIn
-app.get(
-  "/api/user/getLevelByToken",
-  isAuthen,
-  isServiceStaff,
-  UserController.getLevelByToken,
-);
+app.get("/api/user/getLevelByToken", isAuthen, UserController.getLevelByToken);
 app.get("/api/user/list", isAuthen, isAdmin, UserController.list);
 app.put("/api/user/update", isAuthen, isAdmin, UserController.update);
 app.delete("/api/user/remove/:id", isAuthen, isAdmin, UserController.remove);

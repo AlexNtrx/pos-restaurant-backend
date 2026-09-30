@@ -12,7 +12,7 @@ The Express and Prisma API for counter sales, QR orders, table sessions, kitchen
 
 ## Capabilities
 
-- JWT authentication with active-account verification and `admin`, `user`, and `waiter` roles.
+- JWT authentication with active-account verification and `admin`, `user`, `waiter`, and `kitchen` roles.
 - Catalog, staff, and restaurant settings management with validated image uploads.
 - Shared `COUNTER`, `QR`, and `STAFF` orders with immutable item/price snapshots and versioned history.
 - Table sessions, QR tokens, QR modes, and public customer APIs.
@@ -100,14 +100,23 @@ Staff requests use `Authorization: Bearer <token>`. Public QR endpoints use the 
 | Tables                    | `GET /api/tables`, `POST /api/tables/:tableId/sessions`                                                 | Admin, user, waiter; table CRUD is admin-only     |
 | QR mode/tokens            | `/api/qr-mode`, `/api/table-sessions/:sessionId/qr`                                                     | Admin, user; changing mode is admin-only          |
 | Customer QR               | `/api/qr/:token/context`, `/api/qr/:token/menu`, `/api/qr/:token/orders`, `/api/qr/:token/service-call` | Valid session token                               |
-| Orders                    | `/api/orders`, `/api/orders/:orderId/status`, `/api/orders/:orderId/serve`                              | Admin, user, waiter; action rules apply           |
-| Kitchen                   | `PATCH /api/kitchen/orders/:orderId/status`                                                             | Admin, user                                       |
+| Order reads               | `GET /api/orders`, `GET /api/orders/:orderId`                                                           | Admin, user, waiter, kitchen                      |
+| Order actions             | `/api/orders/:orderId/status`, `/api/orders/:orderId/serve`                                             | Admin, user, waiter; action rules apply           |
+| Kitchen                   | `PATCH /api/kitchen/orders/:orderId/status`                                                             | Admin, user, kitchen                              |
 | Waiter                    | `/api/waiter/menu`, `/api/waiter/orders`                                                                | Admin, user, waiter                               |
 | Service calls             | `/api/service-calls`, `/api/service-calls/:callId/status`                                               | Admin, user, waiter                               |
 | Table payment             | `POST /api/table-sessions/:sessionId/settle`                                                            | Admin, user                                       |
 | Dashboard, bills, reports | `/api/dashboard/operations`, `/api/billSale/list`, `/api/report/*`                                      | Admin                                             |
 
 Waiters cannot perform payments. Server-side action rules also check the role, state, object scope, and expected version.
+
+### Kitchen staff access
+
+แอดมินสร้างหรือแก้บัญชี role `kitchen` ผ่าน `/api/user/create` และ `/api/user/update` ได้. Frontend แสดงชื่อ **Keittiöhenkilökunta** ในหน้า Henkilöstö และให้บัญชีนี้ Login เข้าเฉพาะหน้า **Keittiö**.
+
+Backend ให้ role นี้อ่าน `GET /api/orders` และ `GET /api/orders/:orderId` ตาม DTO/filter เดิมสำหรับคิวและ polling; สิทธิ์อ่านรวมสถานะนอกคิวด้วย. การเปลี่ยนสถานะอนุญาตเฉพาะ `CONFIRMED → PREPARING → READY` ผ่าน `PATCH /api/kitchen/orders/:orderId/status` พร้อมตรวจ `expectedVersion` และบันทึก history.
+
+Role นี้ไม่สามารถ confirm/reject/cancel/serve, สร้างออเดอร์, ชำระเงิน, จัดการโต๊ะ/QR, service calls, catalog, reports หรือบัญชีพนักงาน. Backend ตรวจบัญชีที่ active และ role ปัจจุบันจากฐานข้อมูล แม้ JWT จะมี role claim เก่า. `admin/user/waiter` คงสิทธิ์เดิม และไม่มี migration ใหม่สำหรับ role นี้ เพราะ `User.level` เป็น String.
 
 ## Order and payment rules
 

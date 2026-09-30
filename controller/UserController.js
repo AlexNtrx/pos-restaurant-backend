@@ -11,7 +11,7 @@ const {
 
 dotenv.config();
 
-const validLevels = new Set(["admin", "user", "waiter"]);
+const validLevels = new Set(["admin", "user", "waiter", "kitchen"]);
 const safeUserSelect = { id: true, name: true, username: true, level: true };
 
 // Coordinates positive integer behavior for this module.
@@ -94,7 +94,7 @@ module.exports = {
         where: {
           username,
           status: "use",
-          level: { in: ["admin", "user", "waiter"] },
+          level: { in: ["admin", "user", "waiter", "kitchen"] },
         },
         select: { ...safeUserSelect, password: true },
       });

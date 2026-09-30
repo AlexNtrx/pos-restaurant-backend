@@ -4,6 +4,7 @@ const prisma = require("../lib/prisma");
 const ROLE_ADMIN = "admin";
 const ROLE_USER = "user";
 const ROLE_WAITER = "waiter";
+const ROLE_KITCHEN = "kitchen";
 
 // Loads token from request for the current workflow.
 const getTokenFromRequest = (req) => {
@@ -59,7 +60,10 @@ const isAuthen = async (req, res, next) => {
       },
     });
 
-    if (!user || ![ROLE_ADMIN, ROLE_USER, ROLE_WAITER].includes(user.level)) {
+    if (
+      !user ||
+      ![ROLE_ADMIN, ROLE_USER, ROLE_WAITER, ROLE_KITCHEN].includes(user.level)
+    ) {
       return res.status(401).send({ error: "Unauthorized" });
     }
 
@@ -88,4 +92,22 @@ const isServiceStaff = allowRoles(
   "Forbidden",
 );
 
-module.exports = { isAdmin, isAuthen, isStaff, isServiceStaff };
+// EN: Kitchen can read Orders and prepare them without acquiring cashier or service permissions.
+// FI: Keittiö voi lukea tilauksia ja valmistaa niitä saamatta kassan tai tarjoilijan oikeuksia.
+const isOrderReader = allowRoles(
+  [ROLE_ADMIN, ROLE_USER, ROLE_WAITER, ROLE_KITCHEN],
+  "Forbidden",
+);
+const isKitchenStaff = allowRoles(
+  [ROLE_ADMIN, ROLE_USER, ROLE_KITCHEN],
+  "Forbidden",
+);
+
+module.exports = {
+  isAdmin,
+  isAuthen,
+  isStaff,
+  isServiceStaff,
+  isOrderReader,
+  isKitchenStaff,
+};
