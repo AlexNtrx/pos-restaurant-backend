@@ -1,3 +1,23 @@
+require("dotenv").config({ quiet: true });
+// EN: Legacy data maintenance is never part of deployment and is disabled in production.
+// FI: Vanhan datan ylläpito ei kuulu julkaisuun, ja se on estetty tuotannossa.
+if (process.env.NODE_ENV === "production") {
+  throw new Error("Password maintenance cannot run in production.");
+}
+const maintenanceUrl = new URL(process.env.DATABASE_URL);
+if (
+  !["postgres:", "postgresql:"].includes(maintenanceUrl.protocol) ||
+  !["localhost", "127.0.0.1", "[::1]"].includes(maintenanceUrl.hostname) ||
+  !/^db_next_workshop_pos(?:_test(?:_[a-z0-9_]+)?)?$/.test(
+    decodeURIComponent(maintenanceUrl.pathname.slice(1)),
+  ) ||
+  maintenanceUrl.searchParams.has("host") ||
+  maintenanceUrl.searchParams.has("options")
+) {
+  throw new Error(
+    "Password maintenance requires the local development or disposable test database.",
+  );
+}
 const { PrismaClient } = require("@prisma/client");
 const { hashPassword, isPasswordHash } = require("../lib/password");
 

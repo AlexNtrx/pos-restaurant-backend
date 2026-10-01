@@ -1,3 +1,13 @@
+require("dotenv").config({ quiet: true });
+const {
+  getCorsOrigins,
+  getPort,
+  validateRuntimeEnvironment,
+} = require("./lib/environment");
+if (require.main === module || process.env.NODE_ENV === "production") {
+  validateRuntimeEnvironment();
+}
+const prisma = require("./lib/prisma");
 const bodyParser = require("body-parser");
 const express = require("express");
 const app = express();
@@ -13,7 +23,25 @@ app.use((error, req, res, next) => {
   return next(error);
 });
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(cors());
+const corsOrigins = getCorsOrigins();
+app.use(
+  cors({
+    origin: corsOrigins.length
+      ? corsOrigins
+      : process.env.NODE_ENV !== "production",
+  }),
+);
+
+// EN: Readiness checks database connectivity without disclosing connection details.
+// FI: Valmiustarkistus testaa tietokantayhteyden paljastamatta yhteyden tietoja.
+app.get("/health", async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).send({ status: "ok" });
+  } catch {
+    res.status(503).send({ status: "unavailable" });
+  }
+});
 app.use(fileUpload());
 app.use("/uploads", (req, res, next) => {
   if (/^\/bill-.*\.pdf$/i.test(req.path)) {
@@ -49,9 +77,6 @@ const {
   isOrderReader,
   isKitchenStaff,
 } = require("./middleware/auth");
-
-const dotenv = require("dotenv");
-dotenv.config();
 
 // EN: QR-01 raw access tokens are issued only to authenticated staff, never on a public route.
 // FI: QR-01:n alkuperäiset tunnisteet annetaan vain tunnistautuneelle henkilökunnalle, ei julkisella reitillä.
@@ -396,12 +421,51 @@ app.delete("/api/user/remove/:id", isAuthen, isAdmin, UserController.remove);
 app.post("/api/user/create", isAuthen, isAdmin, UserController.create);
 app.post("/api/user/signIn", UserController.signIn);
 
-// Coordinates start server behavior for this module.
-const startServer = (port = 3001) =>
-  app.listen(port, () => {
-    console.log(`API Server running on port ${port}`);
+// EN: Connect before accepting traffic, then drain HTTP requests before releasing the shared pool.
+// FI: Yhdistä ennen liikenteen vastaanottamista ja päätä HTTP-pyynnöt ennen yhteisen poolin sulkemista.
+const startServer = async (port = getPort()) => {
+  await prisma.$connect();
+  const server = app.listen(port, "0.0.0.0");
+  await new Promise((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
   });
+  console.log(`API Server running on port ${port}`);
+  return server;
+};
 
-const server = require.main === module ? startServer() : null;
+const shutdownServer = (server) => {
+  let closing = false;
+  const shutdown = () => {
+    if (closing) return;
+    closing = true;
+    const deadline = setTimeout(() => process.exit(1), 25_000);
+    deadline.unref();
+    server.close(async () => {
+      try {
+        await prisma.$disconnect();
+        clearTimeout(deadline);
+      } catch {
+        process.exitCode = 1;
+      }
+    });
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+};
 
-module.exports = { app, server, startServer };
+module.exports = { app, server: null, startServer };
+if (require.main === module) {
+  startServer()
+    .then((server) => {
+      module.exports.server = server;
+      shutdownServer(server);
+    })
+    .catch(async () => {
+      console.error(
+        "API startup failed: check database connectivity and PORT configuration.",
+      );
+      await prisma.$disconnect();
+      process.exitCode = 1;
+    });
+}

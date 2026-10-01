@@ -8,8 +8,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -87,7 +88,9 @@ model SaleTemp {
   foodId          Int
   qty             Int              @default(1)
   saleTempDetails SaleTempDetail[]
-  Food            Food             @relation(fields: [foodId], references: [id])
+  // EN: Cart lines require a Food; menu removal uses soft delete and must retain this reference.
+  // FI: Ostoskoririvi vaatii Food-viitteen; valikon poisto on pehmeä ja säilyttää viitteen.
+  Food            Food             @relation(fields: [foodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   User            User             @relation(fields: [userId], references: [id])
 
   @@unique([userId, tableNo, foodId])

@@ -1,11 +1,12 @@
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { PrismaClient } = require("@prisma/client");
-const { TEST_DATABASE_NAME, getDatabaseUrls } = require("../test/database-env");
+const { getDatabaseUrls } = require("../test/database-env");
 
 const main = async () => {
-  const { sourceUrl, testUrl } = getDatabaseUrls();
-  const maintenanceUrl = new URL(sourceUrl);
+  const { testUrl } = getDatabaseUrls();
+  const testDatabaseName = decodeURIComponent(testUrl.pathname.slice(1));
+  const maintenanceUrl = new URL(testUrl);
   maintenanceUrl.pathname = "/postgres";
 
   const maintenance = new PrismaClient({
@@ -15,18 +16,18 @@ const main = async () => {
   try {
     const existing = await maintenance.$queryRawUnsafe(
       "SELECT datname FROM pg_database WHERE datname = $1",
-      TEST_DATABASE_NAME,
+      testDatabaseName,
     );
 
     if (existing.length === 0) {
-      // EN: The database name is a constant, never client input, and creation runs through the maintenance database.
-      // FI: Tietokannan nimi on vakio, ei koskaan asiakassyöte, ja luonti tehdään ylläpitotietokannan kautta.
+      // EN: The name passes the local disposable allowlist before quoted database creation.
+      // FI: Nimi läpäisee paikallisen kertakäyttölistan ennen lainattua tietokannan luontia.
       await maintenance.$executeRawUnsafe(
-        `CREATE DATABASE "${TEST_DATABASE_NAME}"`,
+        `CREATE DATABASE "${testDatabaseName}"`,
       );
-      console.log(`Created disposable database: ${TEST_DATABASE_NAME}`);
+      console.log(`Created disposable database: ${testDatabaseName}`);
     } else {
-      console.log(`Disposable database already exists: ${TEST_DATABASE_NAME}`);
+      console.log(`Disposable database already exists: ${testDatabaseName}`);
     }
   } finally {
     await maintenance.$disconnect();
@@ -37,7 +38,7 @@ const main = async () => {
     const active = await testDatabase.$queryRawUnsafe(
       "SELECT current_database() AS name",
     );
-    if (active[0]?.name !== TEST_DATABASE_NAME) {
+    if (active[0]?.name !== testDatabaseName) {
       throw new Error(
         "Disposable database connectivity check used the wrong database.",
       );
@@ -53,7 +54,12 @@ const main = async () => {
     [prismaCli, "migrate", "deploy"],
     {
       cwd: process.cwd(),
-      env: { ...process.env, DATABASE_URL: testUrl.toString() },
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        DATABASE_URL: testUrl.toString(),
+        DIRECT_URL: testUrl.toString(),
+      },
       stdio: "inherit",
     },
   );
@@ -61,7 +67,7 @@ const main = async () => {
     throw new Error("Failed to apply migrations to the disposable database.");
   }
 
-  console.log(`Applied migrations to: ${TEST_DATABASE_NAME}`);
+  console.log(`Applied migrations to: ${testDatabaseName}`);
 };
 
 main().catch((error) => {
