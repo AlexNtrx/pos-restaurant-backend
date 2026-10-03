@@ -4,6 +4,8 @@
 // FI: --flows suorittaa vain kirjoitustyönkulut; --browser palvelee kertakäyttöisiä testitietoja portissa 3001 Ctrl+C:hen asti ja poistaa ne lopuksi.
 // EN: --verify-browser uses the same isolated server with a small fixture and all staff roles for functional verification.
 // FI: --verify-browser käyttää samaa eristettyä palvelinta pienellä testiaineistolla ja kaikilla henkilökuntarooleilla toiminnallista tarkistusta varten.
+// EN: Add --auth-delay-ms=25000 to --verify-browser to simulate slow authentication without changing application routes.
+// FI: Lisää --verify-browser-tilaan --auth-delay-ms=25000 simuloidaksesi hidasta tunnistautumista muuttamatta sovelluksen reittejä.
 require("./bootstrap");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
@@ -11,6 +13,7 @@ const { writeFileSync, mkdirSync } = require("node:fs");
 const path = require("node:path");
 const { performance } = require("node:perf_hooks");
 const { once } = require("node:events");
+const { createServer } = require("node:http");
 const {
   prisma,
   startApiServer,
@@ -30,6 +33,19 @@ assert.equal(database, "db_next_workshop_pos_test_performance");
 assert.ok(process.env.TEST_DATABASE_URL);
 const verificationBrowser = process.argv.includes("--verify-browser");
 const browserMode = verificationBrowser || process.argv.includes("--browser");
+const authDelayArgument = process.argv.find((arg) =>
+  arg.startsWith("--auth-delay-ms="),
+);
+const authDelayMs = authDelayArgument
+  ? Number(authDelayArgument.split("=")[1])
+  : 0;
+assert.ok(
+  Number.isInteger(authDelayMs) && authDelayMs >= 0 && authDelayMs <= 65_000,
+);
+assert.ok(!authDelayArgument || verificationBrowser);
+const authRequests = [];
+const delayTimers = new Set();
+
 const results = [];
 const failures = [];
 const tableIds = [];
@@ -386,7 +402,36 @@ async function workflow(source = "waiter") {
 async function main() {
   if (browserMode) {
     const { app } = require("../server");
-    server = app.listen(3001, "127.0.0.1");
+    server = createServer((req, res) => {
+      const phase =
+        req.method === "POST" && req.url === "/api/user/signIn"
+          ? "login"
+          : req.method === "GET" && req.url === "/api/user/getLevelByToken"
+            ? "role"
+            : null;
+      if (!phase || !authDelayArgument) return app(req, res);
+      // EN: Delay only synthetic auth requests and record phase/status/time; never log bodies, credentials or tokens.
+      // FI: Viivytä vain testien tunnistautumispyyntöjä ja kirjaa vaihe/tila/aika; älä lokita sisältöä, tunnuksia tai tokeneita.
+      const started = performance.now();
+      const timer = setTimeout(() => {
+        delayTimers.delete(timer);
+        if (!res.destroyed) app(req, res);
+      }, authDelayMs);
+      delayTimers.add(timer);
+      res.once("finish", () => {
+        const row = {
+          phase,
+          status: res.statusCode,
+          elapsedMs: +(performance.now() - started).toFixed(1),
+        };
+        authRequests.push(row);
+        console.log(JSON.stringify(row));
+      });
+      res.once("close", () => {
+        clearTimeout(timer);
+        delayTimers.delete(timer);
+      });
+    }).listen(3001, "127.0.0.1");
     await once(server, "listening");
     apiBaseUrl = "http://localhost:3001/api";
   } else {
@@ -442,6 +487,7 @@ async function main() {
       JSON.stringify({
         mode: verificationBrowser ? "verify-browser" : "browser",
         apiBaseUrl,
+        ...(authDelayArgument ? { authDelayMs } : {}),
         username: fixture.admin.username,
         password: "test-password-1",
         qrPath: `/order/${qrToken}`,
@@ -535,6 +581,8 @@ async function main() {
 }
 
 async function cleanup() {
+  for (const timer of delayTimers) clearTimeout(timer);
+  if (browserMode) server?.closeAllConnections();
   await stopApiServer(server);
   if (fixture) {
     await prisma.order.deleteMany({
@@ -585,9 +633,11 @@ main()
     const output = path.join(
       outputDir,
       browserMode
-        ? verificationBrowser
-          ? "verify-02-browser-cleanup.json"
-          : "local-performance-browser-cleanup.json"
+        ? authDelayArgument
+          ? `perf-00-browser-${authDelayMs}ms.json`
+          : verificationBrowser
+            ? "verify-02-browser-cleanup.json"
+            : "local-performance-browser-cleanup.json"
         : process.argv.includes("--flows")
           ? "local-performance-flows.json"
           : "local-performance-api.json",
@@ -601,6 +651,7 @@ main()
           poolLimit: 10,
           results,
           failures,
+          ...(authDelayArgument ? { authDelayMs, authRequests } : {}),
         },
         null,
         2,
