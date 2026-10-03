@@ -3,6 +3,7 @@ const prisma = require("../lib/prisma");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
+const { readBillHistory } = require("../lib/bill-history");
 
 const BUSINESS_TIME_ZONE = "Europe/Helsinki";
 dayjs.extend(utc);
@@ -77,7 +78,81 @@ const listSelect = {
   },
 };
 
+const {
+  BillSaleDetails: _details,
+  Refunds: _refunds,
+  ...headerSelect
+} = listSelect;
+const boundedInteger = (value, min, max) =>
+  typeof value === "number" &&
+  Number.isInteger(value) &&
+  value >= min &&
+  value <= max;
+
 module.exports = {
+  history: async (req, res) => {
+    const start = parseDateOnly(req.body?.startDate, "startDate");
+    const end = parseDateOnly(req.body?.endDate, "endDate");
+    if (start.error || end.error)
+      return res.status(400).send({ error: start.error || end.error });
+    const { page = 1, pageSize = 50, snapshotId } = req.body ?? {};
+    if (
+      start.date > end.date ||
+      !boundedInteger(page, 1, 1_000_000) ||
+      !boundedInteger(pageSize, 1, 100) ||
+      (snapshotId !== undefined &&
+        !boundedInteger(snapshotId, 0, 2_147_483_647))
+    )
+      return res
+        .status(400)
+        .send({ error: "Invalid history range or pagination" });
+    const endExclusive = dayjs(end.date)
+      .tz(BUSINESS_TIME_ZONE)
+      .add(1, "day")
+      .startOf("day")
+      .toDate();
+    res.set("Cache-Control", "no-store");
+    try {
+      const result = await readBillHistory(prisma, {
+        where: {
+          payDate: { gte: start.date, lt: endExclusive },
+          status: { in: ["use", "cancelled"] },
+        },
+        page,
+        pageSize,
+        snapshotId,
+        headerSelect,
+      });
+      return res.send(result);
+    } catch {
+      return res.status(500).send({ error: "Unable to list bill history" });
+    }
+  },
+
+  detail: async (req, res) => {
+    const id = /^\d+$/.test(req.params.id) ? Number(req.params.id) : 0;
+    if (!boundedInteger(id, 1, 2_147_483_647))
+      return res.status(400).send({ error: "Valid bill id is required" });
+    res.set("Cache-Control", "no-store");
+    try {
+      const result = await prisma.billSale.findFirst({
+        where: { id, status: { in: ["use", "cancelled"] } },
+        select: {
+          ...listSelect,
+          BillSaleDetails: {
+            ...listSelect.BillSaleDetails,
+            orderBy: { id: "asc" },
+          },
+          Refunds: { ...listSelect.Refunds, orderBy: { id: "asc" } },
+        },
+      });
+      if (!result) return res.status(404).send({ error: "Bill not found" });
+      return res.send({ result });
+    } catch {
+      return res.status(500).send({ error: "Unable to load bill" });
+    }
+  },
+
   // Coordinates list behavior for this module.
   list: async (req, res) => {
     const start = parseDateOnly(req.body?.startDate, "startDate");
