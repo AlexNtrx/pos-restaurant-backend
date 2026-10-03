@@ -12,7 +12,7 @@ const bodyParser = require("body-parser");
 const express = require("express");
 const app = express();
 const cors = require("cors");
-const fileUpload = require("express-fileupload");
+const { parseImageUpload } = require("./middleware/image-upload");
 
 app.use(bodyParser.json());
 app.use((error, req, res, next) => {
@@ -42,7 +42,6 @@ app.get("/health", async (req, res) => {
     res.status(503).send({ status: "unavailable" });
   }
 });
-app.use(fileUpload());
 app.use("/uploads", (req, res, next) => {
   if (/^\/bill-.*\.pdf$/i.test(req.path)) {
     return res.status(404).send({ error: "Not found" });
@@ -235,6 +234,7 @@ app.post(
   "/api/organization/upload",
   isAuthen,
   isAdmin,
+  parseImageUpload,
   OrganizationController.upload,
 );
 app.post(
@@ -403,7 +403,13 @@ app.post("/api/saleTemp/create", isAuthen, isStaff, SaleTempController.create);
 //food
 app.post("/api/food/paginate", isAuthen, isAdmin, FoodController.paginate);
 app.get("/api/food/filter/:foodType", isAuthen, isStaff, FoodController.filter);
-app.post("/api/food/upload", isAuthen, isAdmin, FoodController.upload);
+app.post(
+  "/api/food/upload",
+  isAuthen,
+  isAdmin,
+  parseImageUpload,
+  FoodController.upload,
+);
 app.post("/api/food/create", isAuthen, isAdmin, FoodController.create);
 app.get("/api/food/list", isAuthen, isAdmin, FoodController.list);
 app.delete("/api/food/remove/:id", isAuthen, isAdmin, FoodController.remove);

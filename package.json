@@ -19,7 +19,7 @@
     "test:receipt": "node --test test/receipt-pdf.test.js",
     "test:migration": "node --require ./test/bootstrap.js --test --test-concurrency=1 test/cart-food-constraint.test.js test/first-admin.test.js test/kassa-role-migration.test.js",
     "admin:first": "node scripts/create-first-admin.js",
-    "test": "node --require ./test/bootstrap.js --test --test-concurrency=1 test/auth.test.js test/kassa-role.test.js test/cart.test.js test/checkout.test.js test/order-domain.test.js test/order-policy.test.js test/order-refunds.test.js test/tables.test.js test/qr-public.test.js test/service-calls.test.js test/staff-orders.test.js test/waiter-orders.test.js test/kitchen-orders.test.js test/table-payment.test.js test/user.test.js test/food.test.js test/food-type.test.js test/food-size.test.js test/taste.test.js test/organization.test.js test/bill-sale.test.js test/report.test.js test/image-upload.test.js",
+    "test": "node --require ./test/bootstrap.js --test --test-concurrency=1 test/auth.test.js test/kassa-role.test.js test/cart.test.js test/checkout.test.js test/order-domain.test.js test/order-policy.test.js test/order-refunds.test.js test/tables.test.js test/qr-public.test.js test/service-calls.test.js test/staff-orders.test.js test/waiter-orders.test.js test/kitchen-orders.test.js test/table-payment.test.js test/user.test.js test/food.test.js test/food-type.test.js test/food-size.test.js test/taste.test.js test/organization.test.js test/bill-sale.test.js test/report.test.js test/image-upload.test.js test/upload-boundary.test.js",
     "test:db:prepare": "node scripts/prepare-test-database.js",
     "test:db:validate": "node --require ./test/bootstrap.js node_modules/prisma/build/index.js validate",
     "migrate:passwords": "node scripts/migrate-passwords.js",
@@ -29,11 +29,11 @@
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "body-parser": "^2.3.0",
+    "busboy": "1.6.0",
     "cors": "^2.8.6",
     "dayjs": "^1.11.21",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "express-fileupload": "^1.5.2",
     "jsonwebtoken": "^9.0.3",
     "pdfkit": "^0.19.1"
   },

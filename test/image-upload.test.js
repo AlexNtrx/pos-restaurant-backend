@@ -45,6 +45,9 @@ test("image upload validation accepts signed supported images and rejects malfor
     validateImageFile(file({ size: MAX_UPLOAD_BYTES + 1 }), options),
     { error: "size" },
   );
+  assert.deepEqual(validateImageFile(file({ truncated: true }), options), {
+    error: "size",
+  });
 });
 
 test("image storage creates a safe UUID filename and propagates movement failures", async () => {
