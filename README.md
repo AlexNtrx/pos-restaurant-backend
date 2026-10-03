@@ -1,40 +1,30 @@
-# Restaurant POS & KDS — Backend
+# Ravintola POS – Backend
 
-The Express and Prisma API for counter sales, QR orders, table sessions, kitchen preparation, waiter service, payments, receipts, and reports. The backend verifies identity, authorization, availability, prices, totals, and financial records.
+Ravintola POS yhdistää kassamyynnin, pöytäkohtaiset QR-tilaukset ja keittiön tilausten käsittelyn samaan työnkulkuun.
+
+Backend tarjoaa frontendille API:n ja tarkistaa palvelinpuolella käyttäjän, käyttöoikeudet, tuotteiden saatavuuden, hinnat, summat ja tilausten sallitut muutokset.
 
 - [Frontend repository](https://github.com/AlexNtrx/pos-restaurant-nextjs)
-- [Backend v2.0.0 release](https://github.com/AlexNtrx/pos-restaurant-backend/releases/tag/v2.0.0)
-- [Frontend v2.0.0 release](https://github.com/AlexNtrx/pos-restaurant-nextjs/releases/tag/v2.0.0)
+- [Backend-julkaisut](https://github.com/AlexNtrx/pos-restaurant-backend/releases)
+- [Frontend-julkaisut](https://github.com/AlexNtrx/pos-restaurant-nextjs/releases)
 
-## Release status
+## Toiminnot
 
-`v2.0.0` is a published source release. Project records include automated checks and browser verification for multiple workflows against disposable PostgreSQL. Production deployment checks and pilot acceptance remain outstanding.
+- Henkilökunnan kirjautuminen ja roolikohtaiset käyttöoikeudet.
+- Kassa-, QR- ja tarjoilijatilaukset sekä pöytäistunnot.
+- Keittiön tilauskäsittely, tilaushistoria ja palvelupyynnöt.
+- Maksut, kuitit, peruutusten kirjaus ja raportit.
+- Ruokalistan, henkilökunnan ja ravintolan asetusten hallinta.
 
-## Features
+Frontendin lähettämiin hintoihin tai loppusummiin ei luoteta; backend laskee taloudelliset arvot itse.
 
-- JWT authentication with active-account verification and `admin`, `user`, `waiter`, and `kitchen` roles.
-- Catalog, staff, and restaurant settings management with validated image uploads.
-- Shared `COUNTER`, `QR`, and `STAFF` orders with immutable item/price snapshots and versioned history.
-- Table sessions, QR tokens, QR modes, and public customer APIs.
-- Staff inbox, kitchen actions, waiter ordering/serving, and service calls.
-- Counter dine-in/takeaway checkout, table-session settlement, PDF receipts, cancellation audit, and reports.
+## Teknologiat ja vaatimukset
 
-### Staff roles
+Node.js 24, Express 5, Prisma 5, PostgreSQL, JWT ja PDFKit.
 
-| Role      | Backend permissions                                                                                                                                                                                           |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `admin`   | Staff and catalog management, restaurant settings, dashboard and reports, plus all operational workflows.                                                                                                     |
-| `user`    | Counter ordering and payments, order reads and operational transitions, kitchen preparation, table-session operations, waiter ordering, and service calls. No admin-only management or reports.               |
-| `waiter`  | Table reads and session opening, table ordering, order reads, confirmation/rejection/cancellation within domain rules, serving, and service calls. No counter payments or kitchen preparation.                |
-| `kitchen` | Order list/detail reads and `CONFIRMED → PREPARING → READY` transitions with version checks and recorded history. No order creation, confirmation, rejection, cancellation, serving, payments, or management. |
+Tarvitset PostgreSQL-tietokannan ja oikeudet valitun paikallisen tietokannan käyttöön.
 
-Admins create and edit accounts through `/api/user/create` and `/api/user/update`. The frontend displays `kitchen` as **Keittiöhenkilökunta** and restricts it to the **Keittiö** board. Order read access includes statuses outside the kitchen queue; frontend navigation restrictions do not narrow that API permission. The backend reloads the active account and current database role rather than trusting JWT role claims. No migration is required for these role values because `User.level` is a String. Customers use QR session tokens without a staff account.
-
-## Requirements
-
-Node.js and npm compatible with `package-lock.json`, PostgreSQL, and appropriate database permissions. The API uses Express 5, Prisma 5, JWT, and PDFKit. An active admin account is needed for management operations; see initial setup below.
-
-## Install and configure
+## Asennus ja ympäristö
 
 ```bash
 git clone https://github.com/AlexNtrx/pos-restaurant-backend.git
@@ -42,102 +32,61 @@ cd pos-restaurant-backend
 npm ci
 ```
 
-To use the published source, run `git checkout v2.0.0` before installing dependencies.
-
-Create `.env` in the repository root with your own values:
+Luo `.env` projektin juureen. Käytä omia arvoja äläkä lisää tiedostoa versionhallintaan.
 
 ```dotenv
-DATABASE_URL=postgresql://USERNAME:PASSWORD@localhost:5432/db_next_workshop_pos?schema=public
-SECRET_KEY=REPLACE_WITH_A_RANDOM_JWT_SECRET
+DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/pos_local?schema=public
+SECRET_KEY=REPLACE_WITH_A_RANDOM_SECRET
 QR_TOKEN_SECRET=REPLACE_WITH_64_HEXADECIMAL_CHARACTERS
 ```
 
-These are placeholders, not working credentials. URL-encode special characters in database credentials. `.env` is ignored by Git.
-
-| Variable                         | Purpose                                                                                                                                                      |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                   | PostgreSQL connection used by Prisma                                                                                                                         |
-| `SECRET_KEY`                     | Signs and verifies staff JWTs                                                                                                                                |
-| `QR_TOKEN_SECRET`                | Separate, stable QR key; exactly 64 hexadecimal characters                                                                                                   |
-| `ORD02_COUNTER_CHECKOUT_ENABLED` | Optional legacy checkout bridge toggle; enabled unless exactly `false`. It does not disable browser-draft checkout or settlement of existing counter orders. |
-
-Generate independent secret values by running this once for each secret:
+Luo salaisuudet erikseen tällä komennolla. `QR_TOKEN_SECRET`-arvon on oltava 64 heksadesimaalimerkkiä ja sen on pysyttävä samana käyttöönottojen välillä.
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-Store the values securely. Do not use the fixed QR key from tests in deployment. Keep the QR key stable across deployments so existing session tokens can be reconstructed.
+## Tietokannan valmistelu
 
-## Database and initial setup
-
-```bash
-npx prisma generate
-npx prisma validate
-```
-
-For a new, disposable local development database, create the PostgreSQL database named in `.env`. After confirming `DATABASE_URL` points to that disposable target, apply committed migrations:
+Varmista ensin, että `DATABASE_URL` osoittaa hyväksyttyyn paikalliseen kehitystietokantaan.
 
 ```bash
-npx prisma migrate deploy
+npm run build
+npm run db:validate
+npm run db:migrate:deploy
 ```
 
-For an existing database, inspect migration status and back up the target before an approved upgrade. Do not reset an existing database to bypass migration errors. Production migrations require a deployment-specific backup and upgrade plan.
+Älä nollaa olemassa olevaa tietokantaa migraatiovirheen ohittamiseksi. Tuotantotietokantoihin tarvitaan erillinen varmuuskopiointi- ja migraatiosuunnitelma.
 
-There is no seed or first-admin bootstrap script. Staff creation requires an authenticated admin, so an empty database is not a sign-in-ready installation. Obtain an approved development dataset or arrange initial admin provisioning with the maintainer. No default username or password is provided.
+## Ensimmäisen ylläpitotilin luonti
 
-With an active admin, use the frontend to configure restaurant details, catalog, staff, and tables. QR ordering also requires an open table session, valid token, and appropriate QR mode.
+Tyhjä tietokanta tarvitsee ylläpitotilin ennen hallintatoimintojen käyttöä. Aseta `.env`-tiedostoon `FIRST_ADMIN_EXPECTED_DATABASE`, `FIRST_ADMIN_EXPECTED_HOST`, `FIRST_ADMIN_NAME`, `FIRST_ADMIN_USERNAME` ja `FIRST_ADMIN_PASSWORD`. Salasanan on oltava 16–128 merkkiä.
 
-## Run locally
-
-Run from the repository root so environment and upload paths resolve correctly:
+Tarkista ensin tietokantakohde kuivaharjoituksella:
 
 ```bash
-node server.js
+npm run admin:first
 ```
 
-The direct entry point listens on port `3001`. There are no `npm run dev` or `npm start` scripts. Update older commands pointing to `src/server.js`. The frontend's local API origin is `http://localhost:3001`; API routes are under `/api`.
+Luo tili vasta, kun tulos vahvistaa oikean tietokannan. Komento luo tilin vain, jos `User`-taulu on tyhjä:
 
-## API overview and access
+```bash
+npm run admin:first -- --apply
+```
 
-Staff requests use `Authorization: Bearer <token>`. Public QR endpoints use the session token in the URL. This table is an overview, not a full request/response specification.
+Käytä toimintoa vain hyväksytyssä paikallisessa ympäristössä. Älä tallenna oikeita tunnuksia versionhallintaan.
 
-| Area                      | Representative routes                                                                                   | Access                                            |
-| ------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Sign-in                   | `POST /api/user/signIn`                                                                                 | Public                                            |
-| Staff management          | `/api/user/list`, `/api/user/create`, `/api/user/update`                                                | Admin                                             |
-| Catalog                   | `/api/food/*`, `/api/foodtype/*`, `/api/foodSize/*`, `/api/taste/*`                                     | Management is admin-only; sale access is separate |
-| Counter                   | `/api/counterOrder/*`, `/api/saleTemp/*`                                                                | Admin, user; ownership checks apply               |
-| Tables                    | `GET /api/tables`, `POST /api/tables/:tableId/sessions`                                                 | Admin, user, waiter; table CRUD is admin-only     |
-| QR mode/tokens            | `/api/qr-mode`, `/api/table-sessions/:sessionId/qr`                                                     | Admin, user; changing mode is admin-only          |
-| Customer QR               | `/api/qr/:token/context`, `/api/qr/:token/menu`, `/api/qr/:token/orders`, `/api/qr/:token/service-call` | Valid session token                               |
-| Order reads               | `GET /api/orders`, `GET /api/orders/:orderId`                                                           | Admin, user, waiter, kitchen                      |
-| Order actions             | `/api/orders/:orderId/status`, `/api/orders/:orderId/serve`                                             | Admin, user, waiter; action rules apply           |
-| Kitchen                   | `PATCH /api/kitchen/orders/:orderId/status`                                                             | Admin, user, kitchen                              |
-| Waiter                    | `/api/waiter/menu`, `/api/waiter/orders`                                                                | Admin, user, waiter                               |
-| Service calls             | `/api/service-calls`, `/api/service-calls/:callId/status`                                               | Admin, user, waiter                               |
-| Table payment             | `POST /api/table-sessions/:sessionId/settle`                                                            | Admin, user                                       |
-| Dashboard, bills, reports | `/api/dashboard/operations`, `/api/billSale/list`, `/api/report/*`                                      | Admin                                             |
+## Käynnistys ja testit
 
-Waiters cannot perform payments. Server-side action rules also check the role, state, object scope, and expected version.
+Käynnistä API portissa `3001`:
 
-## Order and payment rules
+```bash
+npm start
+```
 
-- QR orders normally progress through `SUBMITTED → CONFIRMED → PREPARING → READY → SERVED`; rejection applies to submitted orders under domain rules.
-- Waiter orders use `STAFF`, require an open table session, and are confirmed for kitchen work on submission.
-- New counter checkout records payment and creates a confirmed kitchen order atomically. Prepaid standalone counter orders complete after serving.
-- Older unpaid counter orders retain settlement. New unpaid counter submissions return `PAYMENT_REQUIRED`; exact retries of previously committed submissions can replay their result.
-- Table settlement requires payable session orders to be served, creates at most one bill, completes orders, and closes the session atomically.
-- The server derives financial values. Client totals and versions are assertions to check.
-- Exact retries use the same idempotency key and payload. Conflicting reuse and stale versions are rejected.
-- Orders cannot be cancelled after payment. Admin bill cancellation records audit information and is not a refund.
-- Reports use active `BillSale` records. Bill-history dates use `Europe/Helsinki`; daily/monthly report aggregation uses UTC.
+API-reitit alkavat polusta `/api`. Henkilökunnan pyynnöt vaativat Bearer-tokenin; asiakkaan QR-toiminnot käyttävät pöytäistunnon tokenia.
 
-## Testing
-
-Tests write fixtures and must run only against an approved disposable environment. The bootstrap replaces the database name with `db_next_workshop_pos_test` before loading Prisma; it does not create a separate server.
-
-With `.env` configured for the intended local PostgreSQL server:
+Testit muuttavat tietokantaa. Aja ne vain hyväksytyssä erillisessä testitietokannassa:
 
 ```bash
 npm run test:db:prepare
@@ -146,38 +95,11 @@ npm test
 npm run format:check
 ```
 
-`test:db:prepare` connects to the server's `postgres` maintenance database, creates the disposable database if missing, and applies migrations to it. Its user needs those permissions. Tests reuse the configured server and credentials with the test database name. Confirm the server is approved for testing before running these commands. The bootstrap supplies a fixed test-only QR key.
+## Rajaukset ja julkaisu
 
-`npm run migrate:passwords` is a separate data operation, not a test or mandatory setup step. It changes stored passwords and requires an approved target and backup plan.
+- Järjestelmä tukee yhtä ravintolaa; usean ravintolan käyttöä ei ole toteutettu.
+- Pöytäistunnolla on yksi lasku; laskun jakamista ei ole toteutettu.
+- Tilauspäivitykset käyttävät kyselyitä reaaliaikaisen toimituksen sijaan.
+- Verkkomaksuja, toimituksia, varastonhallintaa, pöytävarauksia ja kanta-asiakasohjelmaa ei ole toteutettu.
 
-## Deployment
-
-Deploy matching frontend/backend versions with required migrations applied. Configure secrets, backup, persistent upload storage, HTTPS, and monitoring for the chosen environment. The server currently uses `cors()` without an origin allowlist; review deployed access configuration during rollout.
-
-Begin with QR `DISABLED`, verify internal `MENU_ONLY` access, then pilot `ORDERING` on selected tables after end-to-end acceptance. Verify actual API reachability, payment retries, receipts, and session closure. A GitHub release does not deploy the API or database.
-
-## Project structure
-
-| Directory/file | Responsibility                                           |
-| -------------- | -------------------------------------------------------- |
-| `server.js`    | Express setup and routes                                 |
-| `controller/`  | HTTP handlers                                            |
-| `middleware/`  | Authentication and authorization                         |
-| `lib/`         | Domain services, pricing, persistence, uploads, receipts |
-| `prisma/`      | Schema and migrations                                    |
-| `scripts/`     | Test database preparation and password migration         |
-| `test/`        | Integration tests and database guard                     |
-| `uploads/`     | Runtime uploaded media; ignored by Git                   |
-
-## Known limits
-
-- Single restaurant; no multi-tenancy.
-- One bill per table session; no split or partial settlement.
-- Polling updates; no realtime delivery.
-- No JWT refresh or token revocation system.
-- No customer accounts, online payments, delivery, inventory, reservations, or loyalty.
-- Upload retention, unused staged images, and historical financial reconciliation need explicit operational policies.
-
-## Workspace documentation
-
-The combined workspace maintains `docs/backend-handoff.md` for API/security contracts, `docs/workflow-roadmap.md` for status, `docs/plan-0.md` for product/design decisions, and `docs/implementation-log.md` for verified history. These are outside this standalone repository and are not included by cloning it alone. See the linked release notes for the public version summary.
+`v2.0.0` on julkaistu lähdekoodiversio. Tuotantotarkistukset ja pilotin hyväksyntä ovat vielä kesken. Ennen tuotantokäyttöä tarkista migraatiot, CORS, pysyvä tiedostotallennus ja API-yhteydet.
