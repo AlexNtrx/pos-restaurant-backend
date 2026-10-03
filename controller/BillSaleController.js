@@ -51,6 +51,18 @@ const listSelect = {
   status: true,
   cancelledAt: true,
   cancelReason: true,
+  Refunds: {
+    select: {
+      amount: true,
+      status: true,
+      method: true,
+      reference: true,
+      completedAt: true,
+      reservedByUserId: true,
+      confirmedByUserId: true,
+      reason: true,
+    },
+  },
   User: { select: { id: true, name: true } },
   CancelledBy: { select: { id: true, name: true } },
   BillSaleDetails: {
@@ -94,7 +106,11 @@ module.exports = {
         (accumulator, bill) => {
           if (bill.status === "use") {
             accumulator.activeCount += 1;
-            accumulator.activeAmount += bill.amount;
+            accumulator.activeAmount +=
+              bill.amount -
+              bill.Refunds.filter(
+                (refund) => refund.status === "COMPLETED",
+              ).reduce((sum, refund) => sum + refund.amount, 0);
           } else {
             accumulator.cancelledCount += 1;
             accumulator.cancelledAmount += bill.amount;
@@ -129,9 +145,20 @@ module.exports = {
         async (tx) => {
           const bill = await tx.billSale.findFirst({
             where: { id },
-            select: { id: true, status: true },
+            select: {
+              id: true,
+              status: true,
+              Orders: { select: { id: true } },
+            },
           });
           if (!bill) return { status: 404, error: "Bill not found" };
+          // EN: Linked Order payments must use the guarded refund flow; voiding a bill cannot bypass Kitchen rules.
+          // FI: Tilaukseen liittyvä maksu käyttää suojattua palautusta; kuitin mitätöinti ei ohita keittiön sääntöjä.
+          if (bill.Orders.length > 0)
+            return {
+              status: 409,
+              error: "Use Order cancellation and refund before preparation",
+            };
           if (bill.status !== "use")
             return {
               status: 409,

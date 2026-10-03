@@ -42,12 +42,21 @@ module.exports = {
       const { start, endExclusive } = utcMonthBounds(year, month);
       const bills = await prisma.billSale.findMany({
         where: { payDate: { gte: start, lt: endExclusive }, status: "use" },
-        select: { payDate: true, amount: true },
+        select: {
+          payDate: true,
+          amount: true,
+          Refunds: { where: { status: "COMPLETED" }, select: { amount: true } },
+        },
       });
       const amountsByDay = new Map();
       for (const bill of bills) {
         const date = bill.payDate.toISOString().slice(0, 10);
-        amountsByDay.set(date, (amountsByDay.get(date) || 0) + bill.amount);
+        // EN: Restate the original sale period only for confirmed returns; pending refunds remain paid revenue.
+        // FI: Oikaise alkuperäinen myyntijakso vain vahvistetuilla palautuksilla; keskeneräinen palautus jää maksetuksi myynniksi.
+        const net =
+          bill.amount -
+          bill.Refunds.reduce((sum, refund) => sum + refund.amount, 0);
+        amountsByDay.set(date, (amountsByDay.get(date) || 0) + net);
       }
       const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
       const results = Array.from({ length: daysInMonth }, (_, index) => {
@@ -81,11 +90,17 @@ module.exports = {
       const { start, endExclusive } = utcYearBounds(year);
       const bills = await prisma.billSale.findMany({
         where: { payDate: { gte: start, lt: endExclusive }, status: "use" },
-        select: { payDate: true, amount: true },
+        select: {
+          payDate: true,
+          amount: true,
+          Refunds: { where: { status: "COMPLETED" }, select: { amount: true } },
+        },
       });
       const amountsByMonth = new Array(12).fill(0);
       for (const bill of bills) {
-        amountsByMonth[bill.payDate.getUTCMonth()] += bill.amount;
+        amountsByMonth[bill.payDate.getUTCMonth()] +=
+          bill.amount -
+          bill.Refunds.reduce((sum, refund) => sum + refund.amount, 0);
       }
       const results = amountsByMonth.map((amount, index) => ({
         month: String(index + 1).padStart(2, "0"),

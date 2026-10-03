@@ -1,6 +1,7 @@
 const prisma = require("../lib/prisma");
 const { OrderDomainError } = require("../lib/order-domain");
 const orders = require("../lib/staff-order-service");
+const refunds = require("../lib/order-refund-service");
 
 const actorFor = (req) => ({
   type: "STAFF",
@@ -23,6 +24,42 @@ const handle = (operation) => async (req, res) => {
 };
 
 module.exports = {
+  getRefund: handle(async (req, res) =>
+    res.send({
+      result: await refunds.getRefund(prisma, {
+        actor: actorFor(req),
+        orderId: req.params.orderId,
+      }),
+    }),
+  ),
+  reserveRefund: handle(async (req, res) =>
+    res.send({
+      result: await refunds.reserveRefund(prisma, {
+        actor: actorFor(req),
+        orderId: req.params.orderId,
+        body: req.body,
+      }),
+    }),
+  ),
+  completeRefund: handle(async (req, res) =>
+    res.send({
+      result: await refunds.finishRefund(prisma, {
+        actor: actorFor(req),
+        orderId: req.params.orderId,
+        body: req.body,
+      }),
+    }),
+  ),
+  failRefund: handle(async (req, res) =>
+    res.send({
+      result: await refunds.finishRefund(prisma, {
+        actor: actorFor(req),
+        orderId: req.params.orderId,
+        body: req.body,
+        failed: true,
+      }),
+    }),
+  ),
   list: handle(async (req, res) =>
     res.send(
       await orders.listStaffOrders(prisma, {

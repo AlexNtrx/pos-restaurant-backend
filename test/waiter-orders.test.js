@@ -214,9 +214,9 @@ const cancel = (order, overrides = {}, actor = waiter) =>
     actor,
   );
 
-test("waiter cancels unpaid QR and STAFF orders outside PREPARING with an audited reason", async () => {
+test("waiter cancels unpaid QR and STAFF orders only before preparation with an audited reason", async () => {
   for (const channel of ["QR", "STAFF"]) {
-    for (const status of ["SUBMITTED", "CONFIRMED", "READY", "SERVED"]) {
+    for (const status of ["SUBMITTED", "CONFIRMED"]) {
       const order = await createStageOrder(channel, status);
       assert.equal((await cancel(order, { reason: " " })).status, 400);
       assert.equal(
@@ -244,7 +244,7 @@ test("waiter cancels unpaid QR and STAFF orders outside PREPARING with an audite
   }
 });
 
-test("waiter cannot cancel PREPARING or prepaid orders; admin preparing cancellation stays available", async () => {
+test("no role can cancel after preparation and paid cancellation requires a refund", async () => {
   const preparing = await createStageOrder("STAFF", "PREPARING");
   const blocked = await cancel(preparing);
   assert.equal(blocked.status, 409);
@@ -254,7 +254,12 @@ test("waiter cannot cancel PREPARING or prepaid orders; admin preparing cancella
   });
   assert.equal(unchanged.status, "PREPARING");
   assert.equal(unchanged.version, preparing.version);
-  assert.equal((await cancel(preparing, {}, fixture.admin)).status, 200);
+  assert.equal((await cancel(preparing, {}, fixture.admin)).status, 409);
+  for (const status of ["READY", "SERVED"]) {
+    const later = await createStageOrder("QR", status);
+    assert.equal((await cancel(later)).status, 409);
+    assert.equal((await cancel(later, {}, fixture.admin)).status, 409);
+  }
 
   const checkout = await checkoutCounterDraft(prisma, {
     actor: adminActor(),

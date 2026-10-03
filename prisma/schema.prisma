@@ -143,6 +143,7 @@ model BillSale {
   BillSaleDetails     BillSaleDetail[]
   TableSession        TableSession?    @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
   Orders              Order[]
+  Refunds             OrderRefund[]
 
   @@unique([userId, idempotencyKey])
   @@index([payDate, status])
@@ -313,6 +314,7 @@ model Order {
   BillSale               BillSale?            @relation(fields: [billSaleId], references: [id], onDelete: Restrict)
   Items                  OrderItem[]
   StatusHistory          OrderStatusHistory[]
+  Refund                 OrderRefund?
 
   @@unique([idempotencyScope, idempotencyKey])
   @@index([status, updatedAt])
@@ -321,6 +323,29 @@ model Order {
   @@index([tableSessionId, status, createdAt])
   @@index([createdByUserId, createdAt])
   @@index([billSaleId])
+}
+
+// EN: A reserved cancellation freezes fulfillment; completion records an operator-confirmed cash/bank refund separately from the original bill.
+// FI: Varattu peruutus pysäyttää toimituksen; valmistuminen kirjaa käyttäjän vahvistaman käteis- tai pankkipalautuksen erillään alkuperäisestä kuitista.
+model OrderRefund {
+  id                Int       @id @default(autoincrement())
+  orderId           Int       @unique
+  billSaleId        Int
+  idempotencyKey    String    @unique
+  amount            Int
+  method            String
+  status            String    @default("PENDING")
+  reason            String
+  reference         String?
+  failureReason     String?
+  reservedByUserId  Int
+  confirmedByUserId Int?
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
+  Order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  BillSale          BillSale  @relation(fields: [billSaleId], references: [id], onDelete: Restrict)
+
+  @@index([status, completedAt])
 }
 
 model OrderItem {

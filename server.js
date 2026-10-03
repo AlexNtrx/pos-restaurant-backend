@@ -153,6 +153,30 @@ app.post(
 );
 app.get("/api/orders", isAuthen, isOrderReader, StaffOrderController.list);
 app.get(
+  "/api/orders/:orderId/refund",
+  isAuthen,
+  isAdmin,
+  StaffOrderController.getRefund,
+);
+app.post(
+  "/api/orders/:orderId/refund",
+  isAuthen,
+  isAdmin,
+  StaffOrderController.reserveRefund,
+);
+app.post(
+  "/api/orders/:orderId/refund/complete",
+  isAuthen,
+  isAdmin,
+  StaffOrderController.completeRefund,
+);
+app.post(
+  "/api/orders/:orderId/refund/fail",
+  isAuthen,
+  isAdmin,
+  StaffOrderController.failRefund,
+);
+app.get(
   "/api/orders/:orderId",
   isAuthen,
   isOrderReader,

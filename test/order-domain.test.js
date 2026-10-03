@@ -381,7 +381,7 @@ test("settlement atomically records PAID and COMPLETED and supports exact replay
       nextStatus: "CANCELLED",
       reason: "Cannot cancel after payment",
     }),
-    { status: 409, code: "INVALID_TRANSITION" },
+    { status: 409, code: "ORDER_NOT_CANCELLABLE" },
   );
   await expectDomainError(
     settleOrders(prisma, { ...request, inputMoney: served.total + 21 }),
