@@ -2,6 +2,8 @@
 // FI: Suorita next-pos-api-kansiosta komennolla `node test/performance-local.js`; valmistele migraatiot ensin komennolla `npm run test:db:prepare`.
 // EN: --flows runs only write workflows; --browser serves disposable fixtures on port 3001 until Ctrl+C, then removes them.
 // FI: --flows suorittaa vain kirjoitustyönkulut; --browser palvelee kertakäyttöisiä testitietoja portissa 3001 Ctrl+C:hen asti ja poistaa ne lopuksi.
+// EN: --verify-browser uses the same isolated server with a small fixture and all staff roles for functional verification.
+// FI: --verify-browser käyttää samaa eristettyä palvelinta pienellä testiaineistolla ja kaikilla henkilökuntarooleilla toiminnallista tarkistusta varten.
 require("./bootstrap");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
@@ -26,6 +28,8 @@ const appPrisma = require("../lib/prisma");
 const database = new URL(process.env.DATABASE_URL).pathname.slice(1);
 assert.equal(database, "db_next_workshop_pos_test_performance");
 assert.ok(process.env.TEST_DATABASE_URL);
+const verificationBrowser = process.argv.includes("--verify-browser");
+const browserMode = verificationBrowser || process.argv.includes("--browser");
 const results = [];
 const failures = [];
 const tableIds = [];
@@ -380,7 +384,7 @@ async function workflow(source = "waiter") {
 }
 
 async function main() {
-  if (process.argv.includes("--browser")) {
+  if (browserMode) {
     const { app } = require("../server");
     server = app.listen(3001, "127.0.0.1");
     await once(server, "listening");
@@ -418,17 +422,40 @@ async function main() {
   queueSession = opened.data.result.session;
   qrToken = opened.data.result.token;
   assert.ok(qrToken);
-  if (process.argv.includes("--browser")) {
-    await seedVolume();
+  if (browserMode) {
+    let kitchen;
+    if (verificationBrowser) {
+      kitchen = await prisma.user.create({
+        data: {
+          name: `${fixture.marker}-kitchen`,
+          username: `${fixture.marker}-kitchen`,
+          password: fixture.user.password,
+          level: "kitchen",
+          status: "use",
+        },
+      });
+      fixture.kitchenId = kitchen.id;
+    } else await seedVolume();
     // EN: These generated credentials and QR access exist only in the disposable database, for manual/browser verification.
     // FI: Nämä luodut tunnukset ja QR-pääsy ovat vain kertakäyttötietokannassa manuaali- ja selaintarkistuksia varten.
     console.log(
       JSON.stringify({
-        mode: "browser",
+        mode: verificationBrowser ? "verify-browser" : "browser",
         apiBaseUrl,
         username: fixture.admin.username,
         password: "test-password-1",
         qrPath: `/order/${qrToken}`,
+        ...(verificationBrowser
+          ? {
+              accounts: {
+                admin: fixture.admin.username,
+                kassa: fixture.user.username,
+                waiter: waiter.username,
+                kitchen: kitchen.username,
+              },
+              tableNo: queueTable.tableNo,
+            }
+          : {}),
       }),
     );
     await new Promise((resolve) => {
@@ -527,6 +554,8 @@ async function cleanup() {
     });
     if (fixture.waiterId)
       await prisma.user.delete({ where: { id: fixture.waiterId } });
+    if (fixture.kitchenId)
+      await prisma.user.delete({ where: { id: fixture.kitchenId } });
   }
   if (organization) await restoreOrganizationFixture(organization);
   if (originalPolicy)
@@ -555,8 +584,10 @@ main()
     mkdirSync(outputDir, { recursive: true });
     const output = path.join(
       outputDir,
-      process.argv.includes("--browser")
-        ? "local-performance-browser-cleanup.json"
+      browserMode
+        ? verificationBrowser
+          ? "verify-02-browser-cleanup.json"
+          : "local-performance-browser-cleanup.json"
         : process.argv.includes("--flows")
           ? "local-performance-flows.json"
           : "local-performance-api.json",
