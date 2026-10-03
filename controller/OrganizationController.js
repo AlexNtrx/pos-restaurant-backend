@@ -1,8 +1,11 @@
 const { Prisma } = require("@prisma/client");
 const prisma = require("../lib/prisma");
-const fs = require("node:fs/promises");
 const path = require("node:path");
 const { storeImage, validateImageFile } = require("../lib/image-upload");
+const {
+  removeImageArtifacts,
+  ImageProcessingError,
+} = require("../lib/image-variants");
 
 const uploadDirectory = path.resolve("uploads");
 // Coordinates text behavior for this module.
@@ -60,9 +63,7 @@ const validateOrganization = (body) => {
 // Removes or clears old logo using the existing workflow.
 const removeOldLogo = async (oldLogo, newLogo) => {
   if (!oldLogo || oldLogo === newLogo || !safeLogoName(oldLogo)) return;
-  await fs.unlink(path.join(uploadDirectory, oldLogo)).catch((error) => {
-    if (error.code !== "ENOENT") throw error;
-  });
+  await removeImageArtifacts(uploadDirectory, oldLogo);
 };
 
 module.exports = {
@@ -120,7 +121,11 @@ module.exports = {
         prefix: "logo_",
       });
       return res.status(201).send({ message: "success", fileName });
-    } catch {
+    } catch (error) {
+      if (error instanceof ImageProcessingError) {
+        if (error.status === 429) res.set("Retry-After", "2");
+        return res.status(error.status).send({ error: error.message });
+      }
       return res.status(500).send({ error: "Unable to upload logo" });
     }
   },

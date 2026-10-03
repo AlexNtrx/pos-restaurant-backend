@@ -3,9 +3,12 @@ const {
   positiveInteger,
   activeCategoryExists,
 } = require("../lib/catalog-validation");
-const fs = require("node:fs/promises");
 const path = require("node:path");
 const { storeImage, validateImageFile } = require("../lib/image-upload");
+const {
+  removeImageArtifacts,
+  ImageProcessingError,
+} = require("../lib/image-variants");
 
 const MAX_PRICE = 10_000_000;
 const MAX_PAGE_SIZE = 100;
@@ -83,9 +86,7 @@ const removeUnreferencedImage = async (oldImage) => {
     where: { OR: [{ img: oldImage }, { detailImg: oldImage }] },
   });
   if (referenceCount > 0) return;
-  await fs.unlink(path.join(uploadDirectory, oldImage)).catch((error) => {
-    if (error.code !== "ENOENT") throw error;
-  });
+  await removeImageArtifacts(uploadDirectory, oldImage);
 };
 
 module.exports = {
@@ -102,6 +103,10 @@ module.exports = {
       const fileName = await storeImage(uploadedFile, { uploadDirectory });
       return res.status(201).send({ message: "success", fileName });
     } catch (error) {
+      if (error instanceof ImageProcessingError) {
+        if (error.status === 429) res.set("Retry-After", "2");
+        return res.status(error.status).send({ error: error.message });
+      }
       return res.status(500).send({ error: "Unable to upload image" });
     }
   },

@@ -48,6 +48,10 @@ app.use("/uploads", (req, res, next) => {
   }
   return next();
 });
+app.get(
+  "/uploads/variants/:variant/:filename",
+  require("./controller/ImageController").variant,
+);
 app.use("/uploads", express.static("uploads"));
 
 const UserController = require("./controller/UserController");

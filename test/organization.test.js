@@ -1,10 +1,11 @@
 const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { once } = require("node:events");
-const fs = require("node:fs/promises");
 const path = require("node:path");
 const jwt = require("jsonwebtoken");
 const { PrismaClient } = require("@prisma/client");
+const { png } = require("./image-fixture");
+const { removeImageArtifacts } = require("../lib/image-variants");
 const {
   beginOrganizationFixture,
   restoreOrganizationFixture,
@@ -45,9 +46,7 @@ before(async () => {
 after(async () => {
   await Promise.all(
     uploadedFiles.map((fileName) =>
-      fs
-        .unlink(path.join(process.cwd(), "uploads", fileName))
-        .catch(() => undefined),
+      removeImageArtifacts(path.resolve("uploads"), fileName),
     ),
   );
   if (apiServer?.listening)
@@ -114,7 +113,6 @@ test("logo upload requires one signed image and does not mutate organization bef
     body: spoofedForm,
   });
   assert.equal(spoofedResponse.status, 400);
-  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
   const validForm = new FormData();
   validForm.append("file", new Blob([png], { type: "image/png" }), "logo.png");
   const uploadResponse = await fetch(`${apiBaseUrl}/organization/upload`, {

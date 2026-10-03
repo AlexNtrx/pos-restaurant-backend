@@ -2,11 +2,12 @@ const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const { once } = require("node:events");
-const fs = require("node:fs/promises");
 const path = require("node:path");
 const jwt = require("jsonwebtoken");
 const { PrismaClient } = require("@prisma/client");
 const { createTestFixture, cleanupTestFixture } = require("./helpers");
+const { png } = require("./image-fixture");
+const { removeImageArtifacts } = require("../lib/image-variants");
 
 const prisma = new PrismaClient();
 let apiBaseUrl;
@@ -48,9 +49,7 @@ after(async () => {
     await prisma.food.deleteMany({ where: { id: { in: foodIds } } });
   await Promise.all(
     uploadedFiles.map((fileName) =>
-      fs
-        .unlink(path.join(process.cwd(), "uploads", fileName))
-        .catch(() => undefined),
+      removeImageArtifacts(path.resolve("uploads"), fileName),
     ),
   );
   if (apiServer?.listening)
@@ -219,13 +218,8 @@ test("image upload requires one supported image and pagination returns a typed p
   });
   assert.equal(spoofedResponse.status, 400);
 
-  const pngBytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
   const validForm = new FormData();
-  validForm.append(
-    "file",
-    new Blob([pngBytes], { type: "image/png" }),
-    "food.png",
-  );
+  validForm.append("file", new Blob([png], { type: "image/png" }), "food.png");
   const uploadResponse = await fetch(`${apiBaseUrl}/food/upload`, {
     method: "POST",
     headers: { Authorization: headersFor(admin).Authorization },

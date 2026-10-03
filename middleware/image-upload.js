@@ -1,6 +1,5 @@
 const busboy = require("busboy");
 const { Transform } = require("node:stream");
-const { writeFile } = require("node:fs");
 const { MAX_UPLOAD_BYTES } = require("../lib/image-upload");
 
 const MAX_UPLOAD_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
@@ -142,7 +141,6 @@ const parseImageUpload = (req, res, next) => {
           size: fileBytes,
           data,
           truncated: false,
-          mv: (destination, callback) => writeFile(destination, data, callback),
         },
       };
     }

@@ -9,7 +9,7 @@ const {
   storeImage,
 } = require("../lib/image-upload");
 
-const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const { png } = require("./image-fixture");
 let temporaryDirectory;
 
 // Coordinates file behavior for this module.
@@ -18,8 +18,6 @@ const file = (overrides = {}) => ({
   mimetype: "image/png",
   size: png.length,
   data: png,
-  // Coordinates mv behavior for this module.
-  mv: (_destination, callback) => callback(),
   ...overrides,
 });
 
@@ -50,29 +48,23 @@ test("image upload validation accepts signed supported images and rejects malfor
   });
 });
 
-test("image storage creates a safe UUID filename and propagates movement failures", async () => {
+test("image storage preserves originals, creates variants and propagates storage failures", async () => {
   temporaryDirectory = await fs.mkdtemp(
     path.join(os.tmpdir(), "pos-image-upload-"),
   );
-  let destination;
-  // Coordinates mv behavior for this module.
-  const saved = await storeImage(
-    file({
-      mv: (target, callback) => {
-        destination = target;
-        callback();
-      },
-    }),
-    { uploadDirectory: temporaryDirectory, prefix: "logo_" },
-  );
+  const saved = await storeImage(file(), {
+    uploadDirectory: temporaryDirectory,
+    prefix: "logo_",
+  });
   assert.match(saved, /^logo_[0-9a-f-]+\.png$/);
-  assert.equal(destination, path.join(temporaryDirectory, saved));
+  assert.deepEqual(
+    await fs.readFile(path.join(temporaryDirectory, saved)),
+    png,
+  );
+  const blocker = path.join(temporaryDirectory, "not-a-directory");
+  await fs.writeFile(blocker, "blocked");
   await assert.rejects(
-    // Coordinates mv behavior for this module.
-    storeImage(
-      file({ mv: (_target, callback) => callback(new Error("disk failure")) }),
-      { uploadDirectory: temporaryDirectory },
-    ),
-    /disk failure/,
+    storeImage(file(), { uploadDirectory: blocker }),
+    (error) => ["EEXIST", "ENOTDIR"].includes(error.code),
   );
 });

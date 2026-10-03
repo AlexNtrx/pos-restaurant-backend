@@ -18,7 +18,9 @@ const {
 } = require("../middleware/image-upload");
 
 const boundary = "pos-upload-test-boundary";
-const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const { png } = require("./image-fixture");
+const { removeImageArtifacts } = require("../lib/image-variants");
+const sharp = require("sharp");
 const routes = ["/food/upload", "/organization/upload"];
 const savedFiles = [];
 let fixture, server, apiBaseUrl;
@@ -76,9 +78,7 @@ after(async () => {
   await stopApiServer(server);
   await Promise.all(
     savedFiles.map((file) =>
-      fs.unlink(path.resolve("uploads", file)).catch((error) => {
-        if (error.code !== "ENOENT") throw error;
-      }),
+      removeImageArtifacts(path.resolve("uploads"), file),
     ),
   );
   await cleanupTestFixture(fixture);
@@ -119,6 +119,25 @@ test("both upload routes preserve UUID storage and the inclusive 5 MiB file boun
       const { fileName } = JSON.parse(response.text);
       assert.match(fileName, /^(logo_)?[0-9a-f-]+\.png$/);
       savedFiles.push(fileName);
+      const imageUrl =
+        apiBaseUrl.replace(/\/api$/, "") + `/uploads/variants/card/${fileName}`;
+      const image = await fetch(imageUrl);
+      const derivativeBytes = Buffer.from(await image.arrayBuffer());
+      assert.equal(image.status, 200);
+      assert.equal(image.headers.get("content-type"), "image/webp");
+      assert.match(image.headers.get("cache-control"), /max-age=86400/);
+      assert.equal((await sharp(derivativeBytes).metadata()).width, 2);
+      assert.equal(
+        (
+          await fetch(imageUrl, {
+            headers: { "If-None-Match": image.headers.get("etag") },
+            // EN: Request revalidation explicitly; Undici's default conditional request adds no-cache, which forces a fresh 200 response.
+            // FI: Pyydä uudelleenvalidointia erikseen; Undicin oletusarvoinen ehdollinen pyyntö lisää no-cache-arvon, joka pakottaa uuden 200-vastauksen.
+            cache: "no-cache",
+          })
+        ).status,
+        304,
+      );
       assert.deepEqual(
         await fs.readFile(path.resolve("uploads", fileName)),
         bytes,
@@ -241,19 +260,38 @@ test("oversized, multiple, unexpected, spoofed and truncated uploads never write
 
 test("bounded concurrent uploads release every slot after client disconnect", async () => {
   const held = [];
+  const incoming = [];
+  const trackHeld = (req) => {
+    if (req.headers["x-test-held-upload"] === "true") incoming.push(req);
+  };
+  server.on("request", trackHeld);
   try {
     for (let index = 0; index < MAX_CONCURRENT_UPLOADS; index++) {
       const req = http.request(apiBaseUrl + routes[index % routes.length], {
         method: "POST",
-        headers: headers(),
+        headers: {
+          ...headers(),
+          Connection: "keep-alive",
+          "X-Test-Held-Upload": "true",
+        },
         agent: false,
       });
       req.on("error", () => {});
       held.push(req);
       req.write(filePart());
     }
-    // EN: Track successful probes for cleanup while the held requests finish their asynchronous authentication.
-    // FI: Kirjaa onnistuneet kokeilut siivousta varten, kun avoimet pyynnöt viimeistelevät asynkronisen tunnistautumisen.
+    // EN: Wait until all authenticated requests reach the streaming parser; an early probe could occupy and release their fourth slot.
+    // FI: Odota kaikkien tunnistettujen pyyntöjen siirtymistä parseriin; liian aikainen kokeilu voisi varata ja vapauttaa neljännen paikan.
+    for (let attempt = 0; attempt < 200; attempt++) {
+      if (
+        incoming.length === MAX_CONCURRENT_UPLOADS &&
+        incoming.every((req) => req.readableFlowing === true)
+      )
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(incoming.length, MAX_CONCURRENT_UPLOADS);
+    assert.ok(incoming.every((req) => req.readableFlowing === true));
     let response;
     for (let attempt = 0; attempt < 20; attempt++) {
       response = await request(routes[0], multipart(filePart()));
@@ -264,8 +302,11 @@ test("bounded concurrent uploads release every slot after client disconnect", as
     assert.equal(response.status, 429);
     assert.equal(response.headers["retry-after"], "2");
   } finally {
-    const closed = held.map(
-      (req) => new Promise((resolve) => req.once("close", resolve)),
+    server.off("request", trackHeld);
+    const closed = held.map((req) =>
+      req.closed
+        ? Promise.resolve()
+        : new Promise((resolve) => req.once("close", resolve)),
     );
     held.forEach((req) => req.destroy());
     await Promise.all(closed);
