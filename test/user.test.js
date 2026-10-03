@@ -82,7 +82,7 @@ test("user creation validates inputs, hashes the password, and rejects active du
     name: "WF05 Test",
     username,
     password,
-    level: "user",
+    level: "kassa",
   });
   assert.equal(createResponse.status, 201);
   const created = await prisma.user.findFirst({
@@ -97,7 +97,7 @@ test("user creation validates inputs, hashes the password, and rejects active du
     name: "Duplicate",
     username,
     password: "safe-password-2",
-    level: "user",
+    level: "kassa",
   });
   assert.equal(duplicateResponse.status, 409);
 
@@ -117,7 +117,7 @@ test("update preserves a blank password and changes it only when a new valid pas
     name: "WF05 Update",
     username,
     password: firstPassword,
-    level: "user",
+    level: "kassa",
   });
   assert.equal(createResponse.status, 201);
   const created = await prisma.user.findFirst({
@@ -134,7 +134,7 @@ test("update preserves a blank password and changes it only when a new valid pas
       id: created.id,
       name: "Renamed",
       username,
-      level: "user",
+      level: "kassa",
     }),
   });
   assert.equal(withoutPassword.status, 200);
@@ -150,7 +150,7 @@ test("update preserves a blank password and changes it only when a new valid pas
       id: created.id,
       name: "Renamed",
       username,
-      level: "user",
+      level: "kassa",
       password: secondPassword,
     }),
   });

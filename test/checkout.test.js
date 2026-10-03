@@ -258,9 +258,29 @@ test("Counter payment and receipt work before service while Kitchen can finish t
         nextStatus === "SERVED"
           ? `/orders/${order.id}/serve`
           : `/kitchen/orders/${order.id}/status`;
+      // EN: Kassa may serve a paid order, but only admin or kitchen may advance its kitchen status.
+      // FI: Kassa voi merkitä maksetun tilauksen tarjoilluksi, mutta vain admin tai kitchen voi muuttaa sen keittiötilaa.
+      if (nextStatus !== "SERVED") {
+        const forbidden = await fetch(apiBaseUrl + path, {
+          method: "PATCH",
+          ...jsonRequest(otherToken, {
+            expectedVersion: version,
+            nextStatus,
+          }),
+        });
+        assert.equal(forbidden.status, 403);
+        const unchanged = await prisma.order.findUniqueOrThrow({
+          where: { id: order.id },
+        });
+        assert.equal(unchanged.version, version);
+        assert.equal(
+          unchanged.status,
+          nextStatus === "PREPARING" ? "CONFIRMED" : "PREPARING",
+        );
+      }
       const action = await fetch(apiBaseUrl + path, {
         method: "PATCH",
-        ...jsonRequest(otherToken, {
+        ...jsonRequest(nextStatus === "SERVED" ? otherToken : ownerToken, {
           expectedVersion: version,
           ...(nextStatus === "SERVED" ? {} : { nextStatus }),
         }),

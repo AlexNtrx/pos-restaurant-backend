@@ -2,7 +2,7 @@ const jwt = require("jsonwebtoken");
 const prisma = require("../lib/prisma");
 
 const ROLE_ADMIN = "admin";
-const ROLE_USER = "user";
+const ROLE_KASSA = "kassa";
 const ROLE_WAITER = "waiter";
 const ROLE_KITCHEN = "kitchen";
 
@@ -62,7 +62,7 @@ const isAuthen = async (req, res, next) => {
 
     if (
       !user ||
-      ![ROLE_ADMIN, ROLE_USER, ROLE_WAITER, ROLE_KITCHEN].includes(user.level)
+      ![ROLE_ADMIN, ROLE_KASSA, ROLE_WAITER, ROLE_KITCHEN].includes(user.level)
     ) {
       return res.status(401).send({ error: "Unauthorized" });
     }
@@ -86,22 +86,19 @@ const allowRoles = (roles, errorMessage) => (req, res, next) => {
 };
 
 const isAdmin = allowRoles([ROLE_ADMIN], "Only admin");
-const isStaff = allowRoles([ROLE_ADMIN, ROLE_USER], "Forbidden");
+const isStaff = allowRoles([ROLE_ADMIN, ROLE_KASSA], "Forbidden");
 const isServiceStaff = allowRoles(
-  [ROLE_ADMIN, ROLE_USER, ROLE_WAITER],
+  [ROLE_ADMIN, ROLE_KASSA, ROLE_WAITER],
   "Forbidden",
 );
 
 // EN: Kitchen can read Orders and prepare them without acquiring cashier or service permissions.
 // FI: Keittiö voi lukea tilauksia ja valmistaa niitä saamatta kassan tai tarjoilijan oikeuksia.
 const isOrderReader = allowRoles(
-  [ROLE_ADMIN, ROLE_USER, ROLE_WAITER, ROLE_KITCHEN],
+  [ROLE_ADMIN, ROLE_KASSA, ROLE_WAITER, ROLE_KITCHEN],
   "Forbidden",
 );
-const isKitchenStaff = allowRoles(
-  [ROLE_ADMIN, ROLE_USER, ROLE_KITCHEN],
-  "Forbidden",
-);
+const isKitchenStaff = allowRoles([ROLE_ADMIN, ROLE_KITCHEN], "Forbidden");
 
 module.exports = {
   isAdmin,

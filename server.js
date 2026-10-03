@@ -93,13 +93,13 @@ app.post(
 app.post(
   "/api/table-sessions/:sessionId/rotate-token",
   isAuthen,
-  isStaff,
+  isAdmin,
   TableController.rotateToken,
 );
 app.post(
   "/api/table-sessions/:sessionId/close",
   isAuthen,
-  isStaff,
+  isAdmin,
   TableController.closeSession,
 );
 app.post(
@@ -108,11 +108,11 @@ app.post(
   isStaff,
   TablePaymentController.settle,
 );
-app.get("/api/qr-mode", isAuthen, isStaff, TableController.getQrMode);
+app.get("/api/qr-mode", isAuthen, isAdmin, TableController.getQrMode);
 app.get(
   "/api/table-sessions/:sessionId/qr",
   isAuthen,
-  isStaff,
+  isAdmin,
   TableController.reissueToken,
 );
 app.put("/api/qr-mode", isAuthen, isAdmin, TableController.setQrMode);

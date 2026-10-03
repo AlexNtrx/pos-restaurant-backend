@@ -59,7 +59,7 @@ const createTestFixture = async () => {
         name: `${marker}-user`,
         username: `${marker}-user`,
         password,
-        level: "user",
+        level: "kassa",
         status: "use",
       },
     }),

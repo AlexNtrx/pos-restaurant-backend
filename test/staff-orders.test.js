@@ -28,7 +28,7 @@ const request = (path, method = "GET", body, user = fixture.user) =>
 
 const createCounterOrder = () =>
   submitOrder(prisma, {
-    actor: { type: "STAFF", userId: fixture.user.id, level: "user" },
+    actor: { type: "STAFF", userId: fixture.user.id, level: "kassa" },
     idempotencyKey: randomUUID(),
     intent: {
       channel: "COUNTER",

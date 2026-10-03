@@ -112,7 +112,7 @@ test("rejects a token whose user no longer exists", async () => {
 });
 
 test("returns the current database role instead of the JWT role claim", async () => {
-  const token = tokenFor(adminUserId, "user");
+  const token = tokenFor(adminUserId, "kassa");
   const response = await fetch(`${apiBaseUrl}/user/getLevelByToken`, {
     headers: bearer(token),
   });
@@ -148,7 +148,7 @@ test("an active user can access the sale workflow", async () => {
 
 test("staff can load the active POS catalog while only admins can use the management list", async () => {
   const userToken = tokenFor(regularUserId, "admin");
-  const adminToken = tokenFor(adminUserId, "user");
+  const adminToken = tokenFor(adminUserId, "kassa");
   const [
     staffCatalogResponse,
     staffManagementResponse,
@@ -208,7 +208,7 @@ test("food creation and upload require admin", async () => {
 });
 
 test("user creation rejects unsupported role values before writing", async () => {
-  const token = tokenFor(adminUserId, "user");
+  const token = tokenFor(adminUserId, "kassa");
   const response = await fetch(`${apiBaseUrl}/user/create`, {
     method: "POST",
     headers: {

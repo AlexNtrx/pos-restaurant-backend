@@ -286,7 +286,7 @@ test("state engine enforces transitions, reasons, optimistic versions, and histo
 });
 
 test("order services reload active staff permissions from the database", async () => {
-  const actor = { type: "STAFF", userId: fixture.user.id, level: "user" };
+  const actor = { type: "STAFF", userId: fixture.user.id, level: "kassa" };
   const order = await submitOrder(prisma, {
     actor,
     idempotencyKey: randomUUID(),

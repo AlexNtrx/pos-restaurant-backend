@@ -159,7 +159,7 @@ test("one open session receives a hashed 24-hour token and rotation revokes the 
     `/table-sessions/${opened.session.id}/qr`,
     "GET",
     undefined,
-    fixture.user,
+    fixture.admin,
   );
   assert.equal(reissued.status, 200);
   assert.equal(reissued.headers.get("cache-control"), "no-store");
@@ -184,7 +184,7 @@ test("one open session receives a hashed 24-hour token and rotation revokes the 
     `/table-sessions/${opened.session.id}/rotate-token`,
     "POST",
     { expectedVersion: 1 },
-    fixture.user,
+    fixture.admin,
   );
   assert.equal(rotate.status, 200);
   const rotated = (await rotate.json()).result;
@@ -213,7 +213,7 @@ test("one open session receives a hashed 24-hour token and rotation revokes the 
     `/table-sessions/${opened.session.id}/close`,
     "POST",
     { expectedVersion: 2 },
-    fixture.user,
+    fixture.admin,
   );
   assert.equal(close.status, 200);
   assert.equal(await resolveQrAccess(prisma, rotated.token), null);

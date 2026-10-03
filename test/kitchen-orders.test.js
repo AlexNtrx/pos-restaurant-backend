@@ -19,7 +19,7 @@ let fixture;
 let kitchen;
 let kitchenToken;
 
-const request = (id, body, user = fixture.user) =>
+const request = (id, body, user = fixture.admin) =>
   fetch(`${apiBaseUrl}/kitchen/orders/${id}/status`, {
     method: "PATCH",
     headers: user ? headersFor(user) : { "Content-Type": "application/json" },
@@ -28,7 +28,7 @@ const request = (id, body, user = fixture.user) =>
 
 const createConfirmedOrder = async () => {
   const submitted = await submitOrder(prisma, {
-    actor: { type: "STAFF", userId: fixture.user.id, level: "user" },
+    actor: { type: "STAFF", userId: fixture.user.id, level: "kassa" },
     idempotencyKey: randomUUID(),
     intent: {
       channel: "COUNTER",
@@ -324,7 +324,7 @@ test("two kitchen devices cannot start the same version twice; inactive staff ca
   const order = await createConfirmedOrder();
   const body = { expectedVersion: 2, nextStatus: "PREPARING" };
   const responses = await Promise.all([
-    request(order.id, body, fixture.user),
+    request(order.id, body, kitchen),
     request(order.id, body, fixture.admin),
   ]);
   assert.deepEqual(
@@ -349,7 +349,7 @@ test("two kitchen devices cannot start the same version twice; inactive staff ca
     data: { status: "delete" },
   });
   try {
-    assert.equal((await request(order.id, body)).status, 401);
+    assert.equal((await request(order.id, body, fixture.user)).status, 401);
   } finally {
     await prisma.user.update({
       where: { id: fixture.user.id },
