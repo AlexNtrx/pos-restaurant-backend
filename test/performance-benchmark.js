@@ -29,7 +29,6 @@ const {
 
 const root = path.resolve(__dirname, "../..");
 const uploads = path.resolve(__dirname, "../uploads");
-const output = path.join(root, "tmp/perf-09-local.json");
 const lockPath = path.join(root, "tmp/perf-09-local.lock");
 const args = new Map(
   process.argv.slice(2).map((arg) => {
@@ -42,12 +41,34 @@ const args = new Map(
 );
 for (const key of args.keys())
   assert.ok(
-    ["image", "browser", "playwright", "seconds", "concurrency"].includes(key),
+    [
+      "image",
+      "browser",
+      "playwright",
+      "seconds",
+      "concurrency",
+      "soak",
+      "gc-diagnostics",
+    ].includes(key),
     "Unknown benchmark option",
   );
-const seconds = Number(args.get("seconds") ?? 30);
+const soak = args.has("soak");
+const output = path.join(
+  root,
+  soak ? "tmp/perf-09-soak.json" : "tmp/perf-09-local.json",
+);
+const operationCap = soak ? 10000 : 1000;
+const seconds = Number(args.get("seconds") ?? (soak ? 600 : 30));
 const concurrency = Number(args.get("concurrency") ?? 5);
-assert.ok(Number.isInteger(seconds) && seconds >= 1 && seconds <= 120);
+assert.ok(
+  Number.isInteger(seconds) && seconds >= 1 && seconds <= (soak ? 600 : 120),
+);
+if (args.has("gc-diagnostics"))
+  assert.equal(
+    typeof global.gc,
+    "function",
+    "Run Node with --expose-gc for GC diagnostics",
+  );
 assert.ok(
   Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 10,
 );
@@ -91,7 +112,7 @@ const report = {
     slo: "not defined from local measurements",
   },
   monitoringLimitations:
-    "API process RSS/heap/CPU and total database sessions include the fixture observer; Prisma pool wait/query latency, frontend process RSS, long-term leaks and cloud alerts are not measured",
+    "API process RSS/heap/CPU include the fixture observer; Prisma pool wait/query latency, frontend process RSS and cloud alerts are not measured; a bounded soak cannot establish long-term leak freedom",
   expectedFaults: { lostCheckoutResponseTimeouts: 1 },
   workload: {
     foods: 1000,
@@ -101,7 +122,8 @@ const report = {
     imagesPerFood: 2,
     concurrency,
     seconds,
-    operationCap: 1000,
+    operationCap,
+    soak,
     model: "closed-loop mixed reads/writes with 100ms think time",
   },
   failures: [],
@@ -541,6 +563,8 @@ function startMonitoring() {
       ).toFixed(1),
       rssMiB: +(memory.rss / 2 ** 20).toFixed(1),
       heapMiB: +(memory.heapUsed / 2 ** 20).toFixed(1),
+      externalMiB: +(memory.external / 2 ** 20).toFixed(1),
+      arrayBuffersMiB: +(memory.arrayBuffers / 2 ** 20).toFixed(1),
       connections: connections.map((row) => ({
         state: row.state ?? "unknown",
         count: row.count,
@@ -548,6 +572,8 @@ function startMonitoring() {
     });
     previousCpu = process.cpuUsage();
     previousCpuAt = sampledAt;
+    if (soak && monitoring.length % 30 === 0)
+      console.log(JSON.stringify({ progress: monitoring.at(-1) }));
   };
   monitorTimer = setInterval(() => {
     if (!monitorTask)
@@ -743,6 +769,16 @@ async function cleanup() {
   }
 }
 
+function memorySnapshot() {
+  const memory = process.memoryUsage();
+  return Object.fromEntries(
+    ["rss", "heapUsed", "external", "arrayBuffers"].map((name) => [
+      name + "MiB",
+      +(memory[name] / 2 ** 20).toFixed(1),
+    ]),
+  );
+}
+
 async function main() {
   const seedStarted = performance.now();
   const queue = await setup();
@@ -799,7 +835,7 @@ async function main() {
   report.mixed = await closedLoop({
     concurrency,
     durationMs: seconds * 1000,
-    maxOperations: 1000,
+    maxOperations: operationCap,
     signal: stop.signal,
     operation: async (index) => {
       await metrics.measure("mixed-operation", async () => {
@@ -810,6 +846,22 @@ async function main() {
     },
   });
   assert.ok(!stop.signal.aborted, "Benchmark interrupted");
+  if (soak) {
+    // EN: Observe natural idle recovery before diagnostic GC; forced collection never runs inside the measured workload.
+    // FI: Tarkkaile palautumista levossa ennen diagnostista GC:tä; pakotettu keruu ei tapahdu mitatun kuorman aikana.
+    phase = "idle-recovery";
+    await new Promise((resolve) => setTimeout(resolve, 30000));
+    report.memoryRecovery = {
+      beforeGc: memorySnapshot(),
+      forcedGc: args.has("gc-diagnostics"),
+    };
+    if (args.has("gc-diagnostics")) {
+      global.gc();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      global.gc();
+      report.memoryRecovery.afterGc = memorySnapshot();
+    }
+  }
   await health();
   phase = "reconciliation";
   await reconcile();

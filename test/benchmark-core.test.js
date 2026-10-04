@@ -42,12 +42,25 @@ test("deadline stops assigning work while the last operation drains", async () =
   assert.equal(result.completed, 1);
 });
 
+test("maximum soak budget stays bounded and respects cancellation", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const result = await closedLoop({
+    concurrency: 2,
+    durationMs: 600000,
+    maxOperations: 10000,
+    signal: controller.signal,
+    operation: async () => assert.fail("Must not run"),
+  });
+  assert.equal(result.assigned, 0);
+});
+
 test("invalid load budgets reject before executing work", async () => {
   for (const overrides of [
     { concurrency: 11 },
     { concurrency: 0 },
-    { durationMs: 120001 },
-    { maxOperations: 1001 },
+    { durationMs: 600001 },
+    { maxOperations: 10001 },
   ]) {
     await assert.rejects(
       closedLoop({

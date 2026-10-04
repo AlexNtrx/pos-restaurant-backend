@@ -91,9 +91,9 @@ async function closedLoop({
     concurrency < 1 ||
     concurrency > 10 ||
     durationMs < 1 ||
-    durationMs > 120_000 ||
+    durationMs > 600_000 ||
     maxOperations < 1 ||
-    maxOperations > 1000
+    maxOperations > 10_000
   )
     throw new Error("Invalid bounded workload");
   const start = performance.now();
