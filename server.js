@@ -26,6 +26,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const corsOrigins = getCorsOrigins();
 app.use(
   cors({
+    exposedHeaders: ["ETag"],
     origin: corsOrigins.length
       ? corsOrigins
       : process.env.NODE_ENV !== "production",
@@ -72,6 +73,21 @@ const OrganizationController = require("./controller/OrganizationController");
 const BillSaleController = require("./controller/BillSaleController");
 const ReportController = require("./controller/ReportController");
 const DashboardController = require("./controller/DashboardController");
+// EN: Catalog bodies are explicitly revalidated after authorization; shared browser/proxy caches must not reuse staff responses.
+// FI: Luettelosisältö tarkistetaan aina valtuutuksen jälkeen; selaimen ja välityspalvelimen yhteiset välimuistit eivät saa käyttää henkilökunnan vastauksia uudelleen.
+app.use(
+  [
+    "/api/food/list",
+    "/api/food/filter",
+    "/api/foodType/list",
+    "/api/foodSize/list",
+    "/api/taste/list",
+  ],
+  (_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  },
+);
 const {
   isAdmin,
   isAuthen,
