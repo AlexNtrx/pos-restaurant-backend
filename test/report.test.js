@@ -2,7 +2,9 @@ const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { once } = require("node:events");
 const jwt = require("jsonwebtoken");
+const { randomUUID } = require("node:crypto");
 const { PrismaClient } = require("@prisma/client");
+const { readSalesBuckets } = require("../lib/sales-report");
 const { createTestFixture, cleanupTestFixture } = require("./helpers");
 
 const prisma = new PrismaClient();
@@ -62,6 +64,9 @@ before(async () => {
 });
 after(async () => {
   if (billIds.length) {
+    await prisma.order.deleteMany({
+      where: { billSaleId: { in: billIds } },
+    });
     await prisma.billSaleDetail.deleteMany({
       where: { billSaleId: { in: billIds } },
     });
@@ -74,6 +79,54 @@ after(async () => {
   await prisma.$disconnect();
   await cleanupTestFixture(fixture);
 });
+
+const readReport = async (route, body) => {
+  const response = await fetch(`${apiBaseUrl}/report/${route}`, {
+    method: "POST",
+    headers: headersFor(admin),
+    body: JSON.stringify(body),
+  });
+  assert.equal(response.status, 200);
+  return response.json();
+};
+
+const createRefund = async (bill, amount, status) => {
+  const order = await prisma.order.create({
+    data: {
+      channel: "COUNTER",
+      serviceType: "TAKEAWAY",
+      status: "CANCELLED",
+      createdByUserId: admin.id,
+      subtotal: bill.amount,
+      modifierTotal: 0,
+      total: bill.amount,
+      billSaleId: bill.id,
+      idempotencyScope: `USER:${admin.id}`,
+      idempotencyKey: randomUUID(),
+      idempotencyFingerprint: "a".repeat(64),
+      cancelledAt: new Date(),
+    },
+  });
+  return prisma.orderRefund.create({
+    data: {
+      orderId: order.id,
+      billSaleId: bill.id,
+      idempotencyKey: randomUUID(),
+      amount,
+      status,
+      method: "bank",
+      reason: "Report fixture return",
+      reservedByUserId: admin.id,
+      ...(status === "COMPLETED"
+        ? {
+            completedAt: new Date("2033-01-15T12:00:00Z"),
+            reference: "Report fixture confirmation",
+            confirmedByUserId: admin.id,
+          }
+        : {}),
+    },
+  });
+};
 
 test("daily sales is admin-only and validates calendar input", async () => {
   const [userResponse, invalidResponse] = await Promise.all([
@@ -142,4 +195,106 @@ test("monthly sales is admin-only, validates year, and aggregates active final t
   assert.equal(body.results[5].amount, 0);
   assert.deepEqual(body.results[11], { month: "12", amount: 222 });
   assert.equal(body.totalAmount, 333);
+});
+
+test("empty periods return zero-filled leap and century calendars and all twelve months", async () => {
+  for (const [year, days] of [
+    [2000, 29],
+    [2100, 28],
+  ]) {
+    const daily = await readReport("dailySales", { year, month: 2 });
+    assert.equal(daily.results.length, days);
+    assert.equal(daily.results[days - 1].date, `${year}-02-${days}`);
+    assert.ok(daily.results.every((row) => row.amount === 0));
+    assert.equal(daily.totalAmount, 0);
+    const monthly = await readReport("sumMonthly", { year });
+    assert.equal(monthly.results.length, 12);
+    assert.ok(monthly.results.every((row) => row.amount === 0));
+    assert.equal(monthly.totalAmount, 0);
+  }
+});
+
+test("database sums retain integer units above the 32-bit range", async () => {
+  for (let index = 0; index < 2; index++)
+    await createBill(2_147_483_647, new Date("2028-02-29T23:59:59.999Z"));
+  await createBill(17, new Date("2028-03-01T00:00:00.000Z"));
+  const daily = await readReport("dailySales", { year: 2028, month: 2 });
+  assert.equal(daily.results[28].amount, 4_294_967_294);
+  assert.equal(daily.totalAmount, 4_294_967_294);
+  const monthly = await readReport("sumMonthly", { year: 2028 });
+  assert.equal(monthly.results[1].amount, daily.totalAmount);
+  assert.equal(monthly.results[2].amount, 17);
+  assert.equal(monthly.totalAmount, 4_294_967_311);
+});
+
+test("only completed refunds restate the original period without multiplying bill totals or changing snapshots", async () => {
+  const bill = await createBill(100, new Date("2032-02-29T23:59:59.999Z"));
+  for (const [amount, status] of [
+    [10, "COMPLETED"],
+    [20, "COMPLETED"],
+    [30, "PENDING"],
+    [40, "FAILED"],
+  ])
+    await createRefund(bill, amount, status);
+  const cancelled = await createBill(
+    50,
+    new Date("2032-02-01T00:00:00Z"),
+    "cancelled",
+  );
+  await createRefund(cancelled, 50, "COMPLETED");
+  const before = await prisma.billSale.findUnique({
+    where: { id: bill.id },
+    include: { Refunds: { orderBy: { id: "asc" } } },
+  });
+  const daily = await readReport("dailySales", { year: 2032, month: 2 });
+  assert.equal(daily.results[28].amount, 70);
+  assert.equal(daily.totalAmount, 70);
+  const monthly = await readReport("sumMonthly", { year: 2032 });
+  assert.equal(monthly.results[1].amount, 70);
+  assert.equal(monthly.totalAmount, 70);
+  assert.equal((await readReport("sumMonthly", { year: 2033 })).totalAmount, 0);
+  assert.deepEqual(
+    await prisma.billSale.findUnique({
+      where: { id: bill.id },
+      include: { Refunds: { orderBy: { id: "asc" } } },
+    }),
+    before,
+  );
+});
+
+test("UTC buckets and boundaries are independent of the database session timezone", async () => {
+  await createBill(21, new Date("2036-02-29T23:59:59.999Z"));
+  await createBill(7, new Date("2036-03-01T00:00:00Z"));
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SET LOCAL TIME ZONE 'Pacific/Auckland'`;
+    return readSalesBuckets(tx, {
+      start: new Date("2036-02-01T00:00:00Z"),
+      endExclusive: new Date("2036-03-01T00:00:00Z"),
+      bucket: "day",
+    });
+  });
+  assert.deepEqual(result, [{ bucket: 29, amount: 21 }]);
+});
+
+test("reports still reject missing credentials and a revoked current admin role", async () => {
+  const tokenHeaders = headersFor(admin);
+  const request = (headers) =>
+    fetch(`${apiBaseUrl}/report/sumMonthly`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ year: 2032 }),
+    });
+  assert.equal((await request({})).status, 401);
+  try {
+    await prisma.user.update({
+      where: { id: admin.id },
+      data: { level: "kassa" },
+    });
+    assert.equal((await request(tokenHeaders)).status, 403);
+  } finally {
+    await prisma.user.update({
+      where: { id: admin.id },
+      data: { level: "admin" },
+    });
+  }
 });
