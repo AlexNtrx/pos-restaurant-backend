@@ -1,5 +1,6 @@
 const { Prisma } = require("@prisma/client");
 const prisma = require("../lib/prisma");
+const { cleanupAfterSave } = require("../lib/post-save-cleanup");
 const path = require("node:path");
 const { storeImage, validateImageFile } = require("../lib/image-upload");
 const {
@@ -86,7 +87,9 @@ module.exports = {
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
-      await removeOldLogo(oldLogo, data.logo);
+      await cleanupAfterSave("organization", () =>
+        removeOldLogo(oldLogo, data.logo),
+      );
       return res.send({ message: "success" });
     } catch (error) {
       if (error?.code === "P2002" || error?.code === "P2034")

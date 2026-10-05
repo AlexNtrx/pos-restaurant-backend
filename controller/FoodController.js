@@ -1,4 +1,5 @@
 const prisma = require("../lib/prisma");
+const { cleanupAfterSave } = require("../lib/post-save-cleanup");
 const {
   positiveInteger,
   activeCategoryExists,
@@ -181,7 +182,7 @@ module.exports = {
 
       await prisma.food.update({ where: { id }, data });
       for (const image of new Set([food.img, food.detailImg])) {
-        await removeUnreferencedImage(image);
+        await cleanupAfterSave("food", () => removeUnreferencedImage(image));
       }
       return res.send({ message: "success" });
     } catch (error) {
