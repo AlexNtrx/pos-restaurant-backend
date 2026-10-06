@@ -1,14 +1,14 @@
+const reads = require("../lib/counter-read-service");
+const { ReceiptReadError } = require("../lib/receipt-read-error");
 const prisma = require("../lib/prisma");
 const { OrderDomainError } = require("../lib/order-domain");
 const { settleCounterOrder } = require("../lib/order-service");
 const { sendReceiptPdf } = require("../lib/receipt-pdf");
 const { rejectClientFinancialAuthority } = require("../lib/order-pricing");
-const { staffOrderDto } = require("../lib/staff-order-service");
+const { staffOrderDto } = require("../lib/staff-order-read-model");
 const {
   cancelSentCounterOrder,
   checkoutCounterDraft,
-  counterOrderPrebill,
-  draftBillLines,
   getSentCounterOrder,
   listSentCounterOrders,
   quoteCounterDraft,
@@ -44,31 +44,15 @@ module.exports = {
   },
   options: async (req, res) => {
     try {
-      const foodId = Number(req.params.foodId);
-      if (!Number.isSafeInteger(foodId) || foodId <= 0)
-        return res.status(400).send({ error: "Invalid foodId" });
-      const food = await prisma.food.findFirst({
-        where: { id: foodId, status: "use" },
-        include: {
-          FoodType: {
-            include: {
-              tastes: { where: { status: "use" } },
-              foodSizes: { where: { status: "use" } },
-            },
-          },
-        },
+      const result = await reads.options({
+        body: req.body,
+        params: req.params,
+        user: req.user,
       });
-      if (!food || food.FoodType.status !== "use")
-        return res.status(404).send({ error: "Food unavailable" });
-      return res.send({
-        results: {
-          tastes: food.FoodType.tastes.map(({ id, name }) => ({ id, name })),
-          foodSizes: food.FoodType.foodSizes.map(
-            ({ id, name, moneyAdded }) => ({ id, name, moneyAdded }),
-          ),
-        },
-      });
+      return res.send(result);
     } catch (error) {
+      if (error instanceof ReceiptReadError)
+        return res.status(error.status).send(error.body);
       return sendError(res, error);
     }
   },
@@ -127,65 +111,39 @@ module.exports = {
   },
   prebill: async (req, res) => {
     try {
-      const organization = await prisma.organization.findFirst();
-      if (!organization)
-        return res
-          .status(409)
-          .send({ error: "Organization is not configured" });
-      const { snapshot } = await quoteCounterDraft(prisma, req.body);
-      return sendReceiptPdf(
+      const result = await reads.prebill({
+        body: req.body,
+        params: req.params,
+        user: req.user,
+      });
+      return await sendReceiptPdf(
         res,
-        organization,
-        {
-          title: "Esilasku",
-          cashierName: req.user.name,
-          tableNo: snapshot.tableNo,
-          serviceType: snapshot.serviceType ?? "DINE_IN",
-          date: new Date(),
-          lines: draftBillLines(snapshot),
-          amount: snapshot.total,
-          inputMoney: null,
-          returnMoney: null,
-          payType: null,
-        },
-        snapshot.serviceType === "TAKEAWAY"
-          ? "bill-preview-takeaway.pdf"
-          : `bill-preview-table-${snapshot.tableNo}.pdf`,
+        result.organization,
+        result.receipt,
+        result.filename,
       );
     } catch (error) {
+      if (error instanceof ReceiptReadError)
+        return res.status(error.status).send(error.body);
       return sendError(res, error);
     }
   },
   sentPrebill: async (req, res) => {
     try {
-      const order = await counterOrderPrebill(prisma, {
-        actor: actorFor(req),
-        orderId: Number(req.params.id),
+      const result = await reads.sentPrebill({
+        body: req.body,
+        params: req.params,
+        user: req.user,
       });
-      const organization = await prisma.organization.findFirst();
-      if (!organization)
-        return res
-          .status(409)
-          .send({ error: "Organization is not configured" });
-      return sendReceiptPdf(
+      return await sendReceiptPdf(
         res,
-        organization,
-        {
-          title: "Esilasku",
-          cashierName: req.user.name,
-          tableNo: order.tableNo,
-          serviceType: order.serviceType,
-          pickupNo: order.serviceType === "TAKEAWAY" ? order.id : null,
-          date: order.submittedAt,
-          lines: order.lines,
-          amount: order.total,
-          inputMoney: null,
-          returnMoney: null,
-          payType: null,
-        },
-        `bill-preview-order-${order.id}.pdf`,
+        result.organization,
+        result.receipt,
+        result.filename,
       );
     } catch (error) {
+      if (error instanceof ReceiptReadError)
+        return res.status(error.status).send(error.body);
       return sendError(res, error);
     }
   },

@@ -1,0 +1,66 @@
+const CounterOrderController = require("../controller/CounterOrderController");
+const { isAuthen, isStaff } = require("../middleware/auth");
+
+module.exports = function registerCounterRoutes(app) {
+  //saleTemp
+  app.post(
+    "/api/counterOrder/quote",
+    isAuthen,
+    isStaff,
+    CounterOrderController.quote,
+  );
+  app.get(
+    "/api/counterOrder/options/:foodId",
+    isAuthen,
+    isStaff,
+    CounterOrderController.options,
+  );
+  app.post(
+    "/api/counterOrder/submit",
+    isAuthen,
+    isStaff,
+    CounterOrderController.submit,
+  );
+  app.post(
+    "/api/counterOrder/checkout",
+    isAuthen,
+    isStaff,
+    CounterOrderController.checkout,
+  );
+  app.post(
+    "/api/counterOrder/prebill",
+    isAuthen,
+    isStaff,
+    CounterOrderController.prebill,
+  );
+  app.get(
+    "/api/counterOrder/sent",
+    isAuthen,
+    isStaff,
+    CounterOrderController.listSent,
+  );
+  app.get(
+    "/api/counterOrder/:id",
+    isAuthen,
+    isStaff,
+    CounterOrderController.sentDetail,
+  );
+  app.patch(
+    "/api/counterOrder/:id/cancel",
+    isAuthen,
+    isStaff,
+    CounterOrderController.cancelSent,
+  );
+  app.post(
+    "/api/counterOrder/:id/prebill",
+    isAuthen,
+    isStaff,
+    CounterOrderController.sentPrebill,
+  );
+  app.post(
+    "/api/counterOrder/:id/settle",
+    isAuthen,
+    isStaff,
+    CounterOrderController.settle,
+  );
+};

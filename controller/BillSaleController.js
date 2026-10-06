@@ -1,46 +1,14 @@
-const { Prisma } = require("@prisma/client");
+const { cancelLegacyBill } = require("../lib/bill-cancellation-service");
 const prisma = require("../lib/prisma");
 const dayjs = require("dayjs");
-const utc = require("dayjs/plugin/utc");
-const timezone = require("dayjs/plugin/timezone");
 const { readBillHistory } = require("../lib/bill-history");
 
-const BUSINESS_TIME_ZONE = "Europe/Helsinki";
-dayjs.extend(utc);
-dayjs.extend(timezone);
-
-// Coordinates positive integer behavior for this module.
-const positiveInteger = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-};
-
-// Parses and validates date only responses.
-const parseDateOnly = (value, fieldName) => {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
-    return { error: `${fieldName} must be YYYY-MM-DD` };
-  const [year, month, day] = value.split("-").map(Number);
-  const validationDate = new Date(Date.UTC(year, month - 1, day));
-  if (
-    validationDate.getUTCFullYear() !== year ||
-    validationDate.getUTCMonth() !== month - 1 ||
-    validationDate.getUTCDate() !== day
-  )
-    return { error: `${fieldName} is invalid` };
-  return {
-    date: dayjs
-      .tz(value, "YYYY-MM-DD", BUSINESS_TIME_ZONE)
-      .startOf("day")
-      .toDate(),
-  };
-};
-
-// Coordinates cancellation reason behavior for this module.
-const cancellationReason = (value) => {
-  const reason = typeof value === "string" ? value.trim() : "";
-  return reason.length >= 3 && reason.length <= 500 ? reason : null;
-};
-
+const {
+  BUSINESS_TIME_ZONE,
+  parseDateOnly,
+  positiveInteger,
+  cancellationReason,
+} = require("../lib/bill-input");
 const listSelect = {
   id: true,
   payDate: true,
@@ -216,42 +184,11 @@ module.exports = {
         .status(400)
         .send({ error: "Cancellation reason must be 3-500 characters" });
     try {
-      const result = await prisma.$transaction(
-        async (tx) => {
-          const bill = await tx.billSale.findFirst({
-            where: { id },
-            select: {
-              id: true,
-              status: true,
-              Orders: { select: { id: true } },
-            },
-          });
-          if (!bill) return { status: 404, error: "Bill not found" };
-          // EN: Linked Order payments must use the guarded refund flow; voiding a bill cannot bypass Kitchen rules.
-          // FI: Tilaukseen liittyvä maksu käyttää suojattua palautusta; kuitin mitätöinti ei ohita keittiön sääntöjä.
-          if (bill.Orders.length > 0)
-            return {
-              status: 409,
-              error: "Use Order cancellation and refund before preparation",
-            };
-          if (bill.status !== "use")
-            return {
-              status: 409,
-              error: "Only an active bill can be cancelled",
-            };
-          await tx.billSale.update({
-            where: { id },
-            data: {
-              status: "cancelled",
-              cancelledAt: new Date(),
-              cancelledByUserId: req.user.id,
-              cancelReason: reason,
-            },
-          });
-          return null;
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
+      const result = await cancelLegacyBill(prisma, {
+        id,
+        reason,
+        actorId: req.user.id,
+      });
       if (result)
         return res.status(result.status).send({ error: result.error });
       return res.send({ message: "success" });

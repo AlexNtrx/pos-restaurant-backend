@@ -1,50 +1,6 @@
-const { Prisma } = require("@prisma/client");
+const writes = require("../lib/size-write-service");
+const { CatalogWriteError } = require("../lib/catalog-write-error");
 const prisma = require("../lib/prisma");
-const {
-  positiveInteger,
-  activeCategoryExists,
-} = require("../lib/catalog-validation");
-
-const MAX_MONEY_ADDED = 10_000_000;
-
-// Coordinates valid money behavior for this module.
-const validMoney = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_MONEY_ADDED
-    ? parsed
-    : null;
-};
-
-// Validates size fields before persistence.
-const validateSize = (body) => {
-  const foodTypeId = positiveInteger(body?.foodTypeId);
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const remark = typeof body?.remark === "string" ? body.remark.trim() : "";
-  const moneyAdded = validMoney(body?.moneyAdded);
-  if (!foodTypeId) return { error: "foodTypeId must be a positive integer" };
-  if (!name || name.length > 100)
-    return { error: "Name must be 1-100 characters" };
-  if (remark.length > 500)
-    return { error: "Remark must be at most 500 characters" };
-  if (moneyAdded === null)
-    return { error: "moneyAdded must be a whole number from 0 to 10000000" };
-  return { foodTypeId, name, remark, moneyAdded };
-};
-// Coordinates active name exists behavior for this module.
-const activeNameExists = (client, foodTypeId, name, excludeId) =>
-  client.foodSize.findFirst({
-    where: {
-      foodTypeId,
-      name,
-      status: "use",
-      ...(excludeId ? { id: { not: excludeId } } : {}),
-    },
-    select: { id: true },
-  });
-
-// Prevents removing a size that is still referenced by a cart.
-const selectedInCart = (client, id) =>
-  client.saleTempDetail.count({ where: { foodSizeId: id } });
 
 // Coordinates send known error behavior for this module.
 const sendKnownError = (res, error) => {
@@ -64,18 +20,16 @@ const sendKnownError = (res, error) => {
 module.exports = {
   // Creates  with the current contract.
   create: async (req, res) => {
-    const data = validateSize(req.body);
-    if (data.error) return res.status(400).send({ error: data.error });
     try {
-      if (!(await activeCategoryExists(prisma, data.foodTypeId)))
-        return res.status(404).send({ error: "Food category not found" });
-      if (await activeNameExists(prisma, data.foodTypeId, data.name))
-        return res
-          .status(409)
-          .send({ error: "Size name is already in use for this category" });
-      await prisma.foodSize.create({ data: { ...data, status: "use" } });
-      return res.status(201).send({ message: "success" });
+      const result = await writes.create({
+        body: req.body,
+        params: req.params,
+        user: req.user,
+      });
+      return res.status(201).send(result);
     } catch (error) {
+      if (error instanceof CatalogWriteError)
+        return res.status(error.status).send(error.body);
       if (sendKnownError(res, error)) return;
       return res.status(500).send({ error: "Unable to create food size" });
     }
@@ -97,34 +51,16 @@ module.exports = {
 
   // Removes or clears  using the existing workflow.
   remove: async (req, res) => {
-    const id = positiveInteger(req.params.id);
-    if (!id)
-      return res.status(400).send({ error: "Valid food size id is required" });
     try {
-      const result = await prisma.$transaction(
-        async (tx) => {
-          const size = await tx.foodSize.findFirst({
-            where: { id, status: "use" },
-            select: { id: true },
-          });
-          if (!size) return { status: 404, error: "Food size not found" };
-          if (await selectedInCart(tx, id))
-            return {
-              status: 409,
-              error: "Cannot remove a size selected in an active cart",
-            };
-          await tx.foodSize.update({
-            where: { id },
-            data: { status: "delete" },
-          });
-          return null;
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
-      if (result)
-        return res.status(result.status).send({ error: result.error });
-      return res.send({ message: "success" });
+      const result = await writes.remove({
+        body: req.body,
+        params: req.params,
+        user: req.user,
+      });
+      return res.send(result);
     } catch (error) {
+      if (error instanceof CatalogWriteError)
+        return res.status(error.status).send(error.body);
       if (sendKnownError(res, error)) return;
       return res.status(500).send({ error: "Unable to remove food size" });
     }
@@ -132,45 +68,16 @@ module.exports = {
 
   // Updates  without changing user-visible behavior.
   update: async (req, res) => {
-    const id = positiveInteger(req.body?.id);
-    const data = validateSize(req.body);
-    if (!id || data.error)
-      return res
-        .status(400)
-        .send({ error: !id ? "Valid food size id is required" : data.error });
     try {
-      const result = await prisma.$transaction(
-        async (tx) => {
-          const size = await tx.foodSize.findFirst({
-            where: { id, status: "use" },
-          });
-          if (!size) return { status: 404, error: "Food size not found" };
-          if (!(await activeCategoryExists(tx, data.foodTypeId)))
-            return { status: 404, error: "Food category not found" };
-          if (await activeNameExists(tx, data.foodTypeId, data.name, id))
-            return {
-              status: 409,
-              error: "Size name is already in use for this category",
-            };
-          if (
-            size.foodTypeId !== data.foodTypeId &&
-            (await selectedInCart(tx, id))
-          ) {
-            return {
-              status: 409,
-              error:
-                "Cannot change category for a size selected in an active cart",
-            };
-          }
-          await tx.foodSize.update({ where: { id }, data });
-          return null;
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
-      if (result)
-        return res.status(result.status).send({ error: result.error });
-      return res.send({ message: "success" });
+      const result = await writes.update({
+        body: req.body,
+        params: req.params,
+        user: req.user,
+      });
+      return res.send(result);
     } catch (error) {
+      if (error instanceof CatalogWriteError)
+        return res.status(error.status).send(error.body);
       if (sendKnownError(res, error)) return;
       return res.status(500).send({ error: "Unable to update food size" });
     }

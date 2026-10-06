@@ -8,21 +8,27 @@ const { afterEach, mock, test } = require("node:test");
 // FI: Syötä tallennusvirheitä käyttämättä tietokantaa tai poistamatta tiedostoja.
 function controller(name, prisma, removeImageArtifacts) {
   const file = path.resolve(__dirname, "../controller", name);
-  const actualRequire = createRequire(file);
-  const module = { exports: {} };
-  const injectedRequire = (id) => {
-    if (id === "../lib/prisma") return prisma;
-    if (id === "../lib/image-variants") {
-      return { ...actualRequire(id), removeImageArtifacts };
-    }
-    return actualRequire(id);
-  };
-  new Function("require", "module", "exports", fs.readFileSync(file, "utf8"))(
-    injectedRequire,
-    module,
-    module.exports,
-  );
-  return module.exports;
+  // EN: Inject faults at the service boundary after moving persistence out of controllers.
+  // FI: Syötä virheet palvelurajalla, kun tallennus on siirretty pois ohjaimista.
+  function load(file) {
+    const actualRequire = createRequire(file);
+    const module = { exports: {} };
+    const injectedRequire = (id) => {
+      if (id === "../lib/prisma" || id === "./prisma") return prisma;
+      if (id === "../lib/image-variants" || id === "./image-variants") {
+        return { ...actualRequire(id), removeImageArtifacts };
+      }
+      if (id.endsWith("-write-service")) return load(actualRequire.resolve(id));
+      return actualRequire(id);
+    };
+    new Function("require", "module", "exports", fs.readFileSync(file, "utf8"))(
+      injectedRequire,
+      module,
+      module.exports,
+    );
+    return module.exports;
+  }
+  return load(file);
 }
 
 function response() {

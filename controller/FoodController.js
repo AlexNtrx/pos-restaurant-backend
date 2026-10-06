@@ -1,74 +1,13 @@
+const writes = require("../lib/food-write-service");
+const { CatalogWriteError } = require("../lib/catalog-write-error");
 const prisma = require("../lib/prisma");
-const { cleanupAfterSave } = require("../lib/post-save-cleanup");
-const {
-  positiveInteger,
-  activeCategoryExists,
-} = require("../lib/catalog-validation");
+const { positiveInteger } = require("../lib/catalog-validation");
 const path = require("node:path");
 const { storeImage, validateImageFile } = require("../lib/image-upload");
-const {
-  removeImageArtifacts,
-  ImageProcessingError,
-} = require("../lib/image-variants");
+const { ImageProcessingError } = require("../lib/image-variants");
 
-const MAX_PRICE = 10_000_000;
 const MAX_PAGE_SIZE = 100;
-const validFoodTypes = new Set(["food", "drink"]);
 const uploadDirectory = path.resolve("uploads");
-
-// Coordinates non negative integer behavior for this module.
-const nonNegativeInteger = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_PRICE
-    ? parsed
-    : null;
-};
-
-// Coordinates normalize text behavior for this module.
-const normalizeText = (value) =>
-  typeof value === "string" ? value.trim() : "";
-
-// Validates is safe image name before it is used.
-const isSafeImageName = (value) =>
-  typeof value === "string" &&
-  value.length <= 160 &&
-  (value === "" || (path.basename(value) === value && !value.includes("\0")));
-
-// Validates food fields before persistence.
-const validateFood = (body) => {
-  const foodTypeId = positiveInteger(body?.foodTypeId);
-  const name = normalizeText(body?.name);
-  const remark = normalizeText(body?.remark);
-  const price = nonNegativeInteger(body?.price);
-  const foodType = body?.foodType;
-  const img = body?.img ?? "";
-  const detailImg = body?.detailImg;
-
-  if (!foodTypeId) return { error: "foodTypeId must be a positive integer" };
-  if (!name || name.length > 120)
-    return { error: "Name must be 1-120 characters" };
-  if (remark.length > 500)
-    return { error: "Remark must be at most 500 characters" };
-  if (price === null)
-    return { error: "Price must be a whole number from 0 to 10000000" };
-  if (!validFoodTypes.has(foodType))
-    return { error: "foodType must be food or drink" };
-  if (!isSafeImageName(img)) return { error: "Invalid image filename" };
-  if (detailImg !== undefined && !isSafeImageName(detailImg))
-    return { error: "Invalid detail image filename" };
-
-  // EN: Omitting detailImg keeps older clients compatible and preserves an existing detail image on update.
-  // FI: detailImg-kentän pois jättäminen säilyttää vanhojen asiakkaiden yhteensopivuuden ja olemassa olevan lisätietokuvan päivityksessä.
-  return {
-    foodTypeId,
-    name,
-    remark,
-    price,
-    foodType,
-    img,
-    ...(detailImg === undefined ? {} : { detailImg }),
-  };
-};
 
 // Coordinates send known error behavior for this module.
 const sendKnownError = (res, error) => {
@@ -77,17 +16,6 @@ const sendKnownError = (res, error) => {
     return true;
   }
   return false;
-};
-
-// EN: Delete a replaced upload only when neither image field of any food still references it.
-// FI: Korvattu kuva poistetaan vain, kun yksikään annos ei enää viittaa siihen kummassakaan kuvakentässä.
-const removeUnreferencedImage = async (oldImage) => {
-  if (!oldImage || !isSafeImageName(oldImage)) return;
-  const referenceCount = await prisma.food.count({
-    where: { OR: [{ img: oldImage }, { detailImg: oldImage }] },
-  });
-  if (referenceCount > 0) return;
-  await removeImageArtifacts(uploadDirectory, oldImage);
 };
 
 module.exports = {
@@ -114,16 +42,16 @@ module.exports = {
 
   // Creates  with the current contract.
   create: async (req, res) => {
-    const data = validateFood(req.body);
-    if (data.error) return res.status(400).send({ error: data.error });
-
     try {
-      if (!(await activeCategoryExists(prisma, data.foodTypeId))) {
-        return res.status(404).send({ error: "Food category not found" });
-      }
-      await prisma.food.create({ data: { ...data, status: "use" } });
-      return res.status(201).send({ message: "success" });
+      const result = await writes.create({
+        body: req.body,
+        params: req.params,
+        user: req.user,
+      });
+      return res.status(201).send(result);
     } catch (error) {
+      if (error instanceof CatalogWriteError)
+        return res.status(error.status).send(error.body);
       return res.status(500).send({ error: "Unable to create food" });
     }
   },
@@ -144,19 +72,16 @@ module.exports = {
 
   // Removes or clears  using the existing workflow.
   remove: async (req, res) => {
-    const id = positiveInteger(req.params.id);
-    if (!id)
-      return res.status(400).send({ error: "Valid food id is required" });
-
     try {
-      const food = await prisma.food.findFirst({
-        where: { id, status: "use" },
-        select: { id: true },
+      const result = await writes.remove({
+        body: req.body,
+        params: req.params,
+        user: req.user,
       });
-      if (!food) return res.status(404).send({ error: "Food not found" });
-      await prisma.food.update({ where: { id }, data: { status: "delete" } });
-      return res.send({ message: "success" });
+      return res.send(result);
     } catch (error) {
+      if (error instanceof CatalogWriteError)
+        return res.status(error.status).send(error.body);
       if (sendKnownError(res, error)) return;
       return res.status(500).send({ error: "Unable to remove food" });
     }
@@ -164,28 +89,16 @@ module.exports = {
 
   // Updates  without changing user-visible behavior.
   update: async (req, res) => {
-    const id = positiveInteger(req.body?.id);
-    const data = validateFood(req.body);
-    if (!id || data.error)
-      return res
-        .status(400)
-        .send({ error: !id ? "Valid food id is required" : data.error });
-
     try {
-      const food = await prisma.food.findFirst({
-        where: { id, status: "use" },
+      const result = await writes.update({
+        body: req.body,
+        params: req.params,
+        user: req.user,
       });
-      if (!food) return res.status(404).send({ error: "Food not found" });
-      if (!(await activeCategoryExists(prisma, data.foodTypeId))) {
-        return res.status(404).send({ error: "Food category not found" });
-      }
-
-      await prisma.food.update({ where: { id }, data });
-      for (const image of new Set([food.img, food.detailImg])) {
-        await cleanupAfterSave("food", () => removeUnreferencedImage(image));
-      }
-      return res.send({ message: "success" });
+      return res.send(result);
     } catch (error) {
+      if (error instanceof CatalogWriteError)
+        return res.status(error.status).send(error.body);
       if (sendKnownError(res, error)) return;
       return res.status(500).send({ error: "Unable to update food" });
     }

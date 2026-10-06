@@ -137,45 +137,52 @@ const cleanupTestFixture = async (fixture) => {
   const userIds = [fixture.admin.id, fixture.user.id];
   const foodIds = [fixture.food.id];
   const categoryIds = [fixture.category.id, fixture.otherCategory.id];
-  await prisma.$transaction(async (tx) => {
-    // EN: Orders reference users, foods, and bills, so aggregate cleanup must run before legacy fixtures.
-    // FI: Tilaukset viittaavat käyttäjiin, ruokiin ja laskuihin, joten aggregaatit poistetaan ennen vanhoja testitietoja.
-    await tx.order.deleteMany({
-      where: {
-        OR: [
-          { createdByUserId: { in: userIds } },
-          { Items: { some: { foodId: { in: foodIds } } } },
-        ],
-      },
-    });
-    await tx.billSaleDetail.deleteMany({
-      where: {
-        OR: [
-          { Food: { id: { in: foodIds } } },
-          { BillSale: { userId: { in: userIds } } },
-        ],
-      },
-    });
-    await tx.billSale.deleteMany({ where: { userId: { in: userIds } } });
-    await tx.saleTempDetail.deleteMany({
-      where: {
-        OR: [
-          { Food: { id: { in: foodIds } } },
-          { SaleTemp: { userId: { in: userIds } } },
-        ],
-      },
-    });
-    await tx.saleTemp.deleteMany({
-      where: { OR: [{ userId: { in: userIds } }, { foodId: { in: foodIds } }] },
-    });
-    await tx.food.deleteMany({ where: { foodTypeId: { in: categoryIds } } });
-    await tx.taste.deleteMany({ where: { foodTypeId: { in: categoryIds } } });
-    await tx.foodSize.deleteMany({
-      where: { foodTypeId: { in: categoryIds } },
-    });
-    await tx.foodType.deleteMany({ where: { id: { in: categoryIds } } });
-    await tx.user.deleteMany({ where: { id: { in: userIds } } });
-  });
+  // EN: Large history fixtures need enough time for atomic, fixture-scoped cleanup.
+  // FI: Suuret historiatestit tarvitsevat riittävän ajan atomiseen, testitietoihin rajattuun siivoukseen.
+  await prisma.$transaction(
+    async (tx) => {
+      // EN: Orders reference users, foods, and bills, so aggregate cleanup must run before legacy fixtures.
+      // FI: Tilaukset viittaavat käyttäjiin, ruokiin ja laskuihin, joten aggregaatit poistetaan ennen vanhoja testitietoja.
+      await tx.order.deleteMany({
+        where: {
+          OR: [
+            { createdByUserId: { in: userIds } },
+            { Items: { some: { foodId: { in: foodIds } } } },
+          ],
+        },
+      });
+      await tx.billSaleDetail.deleteMany({
+        where: {
+          OR: [
+            { Food: { id: { in: foodIds } } },
+            { BillSale: { userId: { in: userIds } } },
+          ],
+        },
+      });
+      await tx.billSale.deleteMany({ where: { userId: { in: userIds } } });
+      await tx.saleTempDetail.deleteMany({
+        where: {
+          OR: [
+            { Food: { id: { in: foodIds } } },
+            { SaleTemp: { userId: { in: userIds } } },
+          ],
+        },
+      });
+      await tx.saleTemp.deleteMany({
+        where: {
+          OR: [{ userId: { in: userIds } }, { foodId: { in: foodIds } }],
+        },
+      });
+      await tx.food.deleteMany({ where: { foodTypeId: { in: categoryIds } } });
+      await tx.taste.deleteMany({ where: { foodTypeId: { in: categoryIds } } });
+      await tx.foodSize.deleteMany({
+        where: { foodTypeId: { in: categoryIds } },
+      });
+      await tx.foodType.deleteMany({ where: { id: { in: categoryIds } } });
+      await tx.user.deleteMany({ where: { id: { in: userIds } } });
+    },
+    { timeout: 30_000 },
+  );
 };
 
 // Coordinates begin organization fixture behavior for this module.
