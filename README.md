@@ -1,30 +1,58 @@
 # Ravintola POS – Backend
 
-Ravintola POS yhdistää kassamyynnin, pöytäkohtaiset QR-tilaukset ja keittiön tilausten käsittelyn samaan työnkulkuun.
+Ravintolan kassamyynnin, QR-tilausten ja keittiön työnkulun API. Tämä portfolio-projekti näyttää, miten käyttäjän oikeudet, tilaukset ja maksut käsitellään palvelinpuolella.
 
-Backend tarjoaa frontendille API:n ja tarkistaa palvelinpuolella käyttäjän, käyttöoikeudet, tuotteiden saatavuuden, hinnat, summat ja tilausten sallitut muutokset.
-
-- [Frontend repository](https://github.com/AlexNtrx/pos-restaurant-nextjs)
-- [Backend-julkaisut](https://github.com/AlexNtrx/pos-restaurant-backend/releases)
-- [Frontend-julkaisut](https://github.com/AlexNtrx/pos-restaurant-nextjs/releases)
+**Lähdekoodiversio: [v2.0.1](https://github.com/AlexNtrx/pos-restaurant-backend/releases/tag/v2.0.1)** · [Frontend](https://github.com/AlexNtrx/pos-restaurant-nextjs) · [Frontend-sovellus](https://pos-restaurant-nextjs.vercel.app)
 
 ## Toiminnot
 
-- Henkilökunnan kirjautuminen ja roolikohtaiset käyttöoikeudet.
-- Kassa-, QR- ja tarjoilijatilaukset sekä pöytäistunnot.
-- Keittiön tilauskäsittely, tilaushistoria ja palvelupyynnöt.
-- Maksut, kuitit, peruutusten kirjaus ja raportit.
-- Ruokalistan, henkilökunnan ja ravintolan asetusten hallinta.
+- Henkilökunnan kirjautuminen ja roolit `admin`, `kassa`, `waiter` ja `kitchen`.
+- Kassa-, QR- ja tarjoilijatilaukset, pöytäistunnot ja asiakkaan palvelupyynnöt.
+- Keittiökäsittely, tilausversiot ja tilamuutosten historia.
+- Maksut, PDF-kuitit, kuittihistoria ja myyntiraportit.
+- Valmistusta edeltävät peruutukset ja manuaalisten rahapalautusten kirjaus.
+- Ruokalistan, henkilökunnan ja ravintolan asetusten hallinta sekä rajatut kuvalataukset ja kuvavariantit.
 
-Frontendin lähettämiin hintoihin tai loppusummiin ei luoteta; backend laskee taloudelliset arvot itse.
+## Teknologiat ja suunnitteluratkaisut
 
-## Teknologiat ja vaatimukset
+Node.js 24, Express 5, Prisma 5, PostgreSQL, JWT, PDFKit ja Sharp.
 
-Node.js 24, Express 5, Prisma 5, PostgreSQL, JWT ja PDFKit.
+- **Taloudelliset arvot palvelimelta:** frontendin hintoihin, summiin tai käyttöoikeusväitteisiin ei luoteta.
+- **Transaktiot ja idempotenssi:** maksu ja siihen liittyvät kirjaukset käsitellään yhdessä; saman pyynnön uusinta palauttaa aiemman tuloksen.
+- **Tilausversiot:** vanhentunut tilamuutos hylätään, jotta kaksi laitetta eivät voi vahvistaa samaa muutosta.
+- **Tilausten snapshotit:** historia ja kuitit säilyttävät tilaushetken tiedot ruokalistan myöhemmistä muutoksista riippumatta.
+- **Erillinen palautuskirjaus:** alkuperäinen lasku säilyy ja palautus vaatii ylläpitäjän vahvistuksen. API ei toteuta pankki- tai maksupalvelusiirtoa.
+- **Rajattu tiedonsiirto:** kuittihistoria sivutetaan, raportit aggregoidaan tietokannassa ja kuvien käsittelyllä on koko- ja rinnakkaisuusrajat.
 
-Tarvitset PostgreSQL-tietokannan ja oikeudet valitun paikallisen tietokannan käyttöön.
+## Rakenne
+
+```text
+server.js       runtime, yhteiset middlewaret ja reittien rekisteröinti
+routes/         domainin reitit ja middlewarejärjestys
+middleware/     tunnistautuminen, oikeudet ja upload-raja
+controller/     HTTP-pyynnöt, vastaukset ja virheiden muunnos
+lib/            validaatio, domainpalvelut, lukumallit ja apufunktiot
+prisma/         schema ja migraatiot
+test/           API- ja regressiotestit
+```
+
+Pyynnön kulku: **Route → Authentication/Permissions → Controller → Service → Prisma**.
+
+| Muutettava alue                       | Sijainti                                                                                                    |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Order submit, tilamuutos ja maksu     | `lib/order-submission-service.js`, `order-transition-service.js`, `order-settlement-service.js`             |
+| Kassatilaukset ja vaihtoehtojen luku  | `lib/counter-order-service.js`, `counter-read-service.js`                                                   |
+| Vanha ostoskori, checkout ja kuitit   | `lib/legacy-cart-service.js`, `legacy-checkout-service.js`, `legacy-receipt-service.js`                     |
+| Kirjautuminen ja henkilöstö           | `lib/authentication-service.js`, `staff-user-service.js`                                                    |
+| Pöytäistunnot, QR ja pöytien ylläpito | `lib/table-service.js`, `table-admin-service.js`                                                            |
+| Peruutukset ja palautukset            | `lib/order-refund-service.js`, `bill-cancellation-service.js`                                               |
+| Ruokalistan kirjoitukset              | `lib/category-write-service.js`, `size-write-service.js`, `taste-write-service.js`, `food-write-service.js` |
+
+`lib/order-service.js` säilyttää yhteensopivan export-rajapinnan; varsinaiset työnkulut ovat yllä olevissa palveluissa.
 
 ## Asennus ja ympäristö
+
+Tarvitset Node.js 24:n, npm:n, PostgreSQL:n ja oikeudet paikalliseen kehitystietokantaan.
 
 ```bash
 git clone https://github.com/AlexNtrx/pos-restaurant-backend.git
@@ -32,23 +60,29 @@ cd pos-restaurant-backend
 npm ci
 ```
 
-Luo `.env` projektin juureen. Käytä omia arvoja äläkä lisää tiedostoa versionhallintaan.
+Kopioi `.env.example` tiedostoksi `.env` ja aseta omat arvot:
 
 ```dotenv
-DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/pos_local?schema=public
+NODE_ENV=development
+PORT=3001
+DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/db_next_workshop_pos?schema=public
+DIRECT_URL=postgresql://USER:PASSWORD@localhost:5432/db_next_workshop_pos?schema=public
 SECRET_KEY=REPLACE_WITH_A_RANDOM_SECRET
-QR_TOKEN_SECRET=REPLACE_WITH_64_HEXADECIMAL_CHARACTERS
+QR_TOKEN_SECRET=REPLACE_WITH_AN_INDEPENDENT_64_HEX_CHARACTER_SECRET
+CORS_ORIGINS=http://localhost:3000
 ```
 
-Luo salaisuudet erikseen tällä komennolla. `QR_TOKEN_SECRET`-arvon on oltava 64 heksadesimaalimerkkiä ja sen on pysyttävä samana käyttöönottojen välillä.
+Luo JWT- ja QR-salaisuudet erikseen. QR-avain on 64 heksadesimaalimerkkiä ja pysyy samana käyttöönottojen välillä.
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-## Tietokannan valmistelu
+Älä lisää oikeita tunnuksia tai `.env`-tiedostoja versionhallintaan.
 
-Varmista ensin, että `DATABASE_URL` osoittaa hyväksyttyyn paikalliseen kehitystietokantaan.
+## Tietokanta ja ensimmäinen ylläpitäjä
+
+Luo ensin paikallinen kehitystietokanta ja varmista yhteysosoitteiden kohde.
 
 ```bash
 npm run build
@@ -56,37 +90,37 @@ npm run db:validate
 npm run db:migrate:deploy
 ```
 
-Älä nollaa olemassa olevaa tietokantaa migraatiovirheen ohittamiseksi. Tuotantotietokantoihin tarvitaan erillinen varmuuskopiointi- ja migraatiosuunnitelma.
+`build` generoi Prisma Clientin. Migraatiokomento käyttää olemassa olevia migraatioita eikä nollaa tietokantaa. Älä ohita migraatiovirhettä resetillä.
 
-## Ensimmäisen ylläpitotilin luonti
-
-Tyhjä tietokanta tarvitsee ylläpitotilin ennen hallintatoimintojen käyttöä. Aseta `.env`-tiedostoon `FIRST_ADMIN_EXPECTED_DATABASE`, `FIRST_ADMIN_EXPECTED_HOST`, `FIRST_ADMIN_NAME`, `FIRST_ADMIN_USERNAME` ja `FIRST_ADMIN_PASSWORD`. Salasanan on oltava 16–128 merkkiä.
-
-Tarkista ensin tietokantakohde kuivaharjoituksella:
+Tyhjä `User`-taulu voidaan alustaa yhdellä ylläpitäjällä. Aseta `.env`-tiedostoon `FIRST_ADMIN_EXPECTED_DATABASE`, `FIRST_ADMIN_EXPECTED_HOST`, `FIRST_ADMIN_NAME`, `FIRST_ADMIN_USERNAME` ja `FIRST_ADMIN_PASSWORD` (16–128 merkkiä).
 
 ```bash
 npm run admin:first
 ```
 
-Luo tili vasta, kun tulos vahvistaa oikean tietokannan. Komento luo tilin vain, jos `User`-taulu on tyhjä:
+Kuivaharjoitus tarkistaa kohteen. Luo tili vain oikeaan paikalliseen tietokantaan:
 
 ```bash
 npm run admin:first -- --apply
 ```
 
-Käytä toimintoa vain hyväksytyssä paikallisessa ympäristössä. Älä tallenna oikeita tunnuksia versionhallintaan.
+Komento ei korvaa olemassa olevia tilejä. Poista tilapäiset provisioning-arvot paikallisesta ympäristöstä käytön jälkeen.
 
 ## Käynnistys ja testit
-
-Käynnistä API portissa `3001`:
 
 ```bash
 npm start
 ```
 
-API-reitit alkavat polusta `/api`. Henkilökunnan pyynnöt vaativat Bearer-tokenin; asiakkaan QR-toiminnot käyttävät pöytäistunnon tokenia.
+Oletusportti on `3001`. API-reitit alkavat polusta `/api`; henkilökunnan pyynnöt käyttävät Bearer-tokenia ja asiakkaan QR-pyynnöt pöytäistunnon tokenia.
 
-Testit muuttavat tietokantaa. Aja ne vain hyväksytyssä erillisessä testitietokannassa:
+Testit muuttavat tietokantaa. Kopioi `.env.test.example` tiedostoksi `.env.test` ja aseta erillinen loopback-testikohde:
+
+```dotenv
+TEST_DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/db_next_workshop_pos_test?schema=public
+```
+
+Sallittu nimi on `db_next_workshop_pos_test` tai nimi, jonka loppuosa on `_` ja pieniä kirjaimia, numeroita tai alaviivoja. Testityökalut hyväksyvät vain loopback-hostin ja `public`-scheman. Valmistelu tarvitsee oikeuden luoda testitietokanta, jos sitä ei vielä ole.
 
 ```bash
 npm run test:db:prepare
@@ -95,11 +129,24 @@ npm test
 npm run format:check
 ```
 
-## Rajaukset ja julkaisu
+Refaktorointivaiheessa **150 regressiotestiä** läpäisi tarkistukset disposable-tietokannassa. Prisma-validaatio, JavaScript-syntaksi ja muutettujen tiedostojen Prettier-tarkistus läpäisivät tarkistukset. Tämä ei vahvista tuotannon selain-E2E- tai pilot-hyväksyntää.
 
-- Järjestelmä tukee yhtä ravintolaa; usean ravintolan käyttöä ei ole toteutettu.
-- Pöytäistunnolla on yksi lasku; laskun jakamista ei ole toteutettu.
-- Tilauspäivitykset käyttävät kyselyitä reaaliaikaisen toimituksen sijaan.
-- Verkkomaksuja, toimituksia, varastonhallintaa, pöytävarauksia ja kanta-asiakasohjelmaa ei ole toteutettu.
+## Päivitys versiosta v2.0.0
 
-`v2.0.0` on julkaistu lähdekoodiversio. Tuotantotarkistukset ja pilotin hyväksyntä ovat vielä kesken. Ennen tuotantokäyttöä tarkista migraatiot, CORS, pysyvä tiedostotallennus ja API-yhteydet.
+Tämä julkaisu sisältää myös ennen refaktorointia toteutetut refund- ja kassa-roolimuutokset. Varmuuskopioi kohde ja suorita migraatiot ennen yhteensopivan frontend/backend-parin käyttöönottoa:
+
+- `20261002190000_order_refunds` lisää palautusten kirjaustaulukon.
+- `20261002200000_kassa_role` muuttaa tallennetun `user`-roolin `kassa`-rooliksi säilyttäen käyttäjät ja historiaviitteet.
+
+Aiempi `user`-rooli ei ole enää hyväksytty kassaoikeus. Kassalla ei ole keittiön valmistusoikeuksia. Uudelleenjulkaistava frontend ja backend on otettava käyttöön yhdessä; tuotannon migraatiot edellyttävät erillistä hyväksyttyä suunnitelmaa.
+
+## Rajaukset ja tila
+
+- Yksi ravintola; ei monen ravintolan tenant-mallia.
+- Pöytäistunnolla yksi lasku; ei laskun jakamista tai osamaksuja.
+- Tilausten päivitys kyselyillä, ei realtime-yhteydellä.
+- Ei verkkomaksuja, toimituksia, varastonhallintaa, pöytävarauksia tai kanta-asiakasohjelmaa.
+
+Lähdekoodijulkaisu ei yksin vahvista tuotantovalmiutta. Tuotantotarkistukset ja pilotin hyväksyntä ovat kesken; refaktorointierälle ei tehty uutta selain-E2E-tarkistusta. Ennen käyttöönottoa tarkista migraatiot, CORS, pysyvä uploads-tallennus ja API-yhteydet.
+
+Yhteensopiva pari: [Backend v2.0.1](https://github.com/AlexNtrx/pos-restaurant-backend/releases/tag/v2.0.1) · [Frontend v2.0.1](https://github.com/AlexNtrx/pos-restaurant-nextjs/releases/tag/v2.0.1).
