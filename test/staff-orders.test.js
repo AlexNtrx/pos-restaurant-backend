@@ -97,7 +97,7 @@ test("staff inbox lists public QR and Counter snapshots with validated filters a
   const qrId = (await qrResponse.json()).result.orderId;
 
   const first = await request(
-    `/orders?status=SUBMITTED&limit=1&updatedAfter=${encodeURIComponent(updatedAfter)}`,
+    `/orders?status=SUBMITTED&sort=submitted_desc&limit=1&updatedAfter=${encodeURIComponent(updatedAfter)}`,
   );
   assert.equal(first.status, 200);
   assert.equal(first.headers.get("cache-control"), "no-store");
@@ -105,13 +105,13 @@ test("staff inbox lists public QR and Counter snapshots with validated filters a
   assert.equal(firstPage.results.length, 1);
   assert.ok(firstPage.nextCursor);
   const second = await request(
-    `/orders?status=SUBMITTED&limit=1&updatedAfter=${encodeURIComponent(updatedAfter)}&cursor=${firstPage.nextCursor}`,
+    `/orders?status=SUBMITTED&sort=submitted_desc&limit=1&updatedAfter=${encodeURIComponent(updatedAfter)}&cursor=${firstPage.nextCursor}`,
   );
   assert.equal(second.status, 200);
   const secondPage = await second.json();
   assert.notEqual(firstPage.results[0].id, secondPage.results[0].id);
-  assert.ok([counter.id, qrId].includes(firstPage.results[0].id));
-  assert.ok([counter.id, qrId].includes(secondPage.results[0].id));
+  assert.equal(firstPage.results[0].id, qrId);
+  assert.equal(secondPage.results[0].id, counter.id);
   const onlyQr = await request(
     `/orders?status=SUBMITTED&channel=QR&tableSessionId=${qrAccess.session.id}`,
   );
