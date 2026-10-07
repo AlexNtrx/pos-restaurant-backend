@@ -283,12 +283,11 @@ async function readCases(stage, concurrency = 1, count = 20) {
     ],
     ["monthly-report", () => request("/report/sumMonthly", { year: 2026 })],
     [
-      "bill-history",
+      "order-history-page",
       () =>
-        request("/billSale/list", {
-          startDate: "2026-10-01",
-          endDate: "2026-10-31",
-        }),
+        request(
+          "/orders?submittedFrom=2026-10-01T00:00:00.000Z&submittedBefore=2026-11-01T00:00:00.000Z&limit=50",
+        ),
     ],
     ["qr-context", () => request(`/qr/${qrToken}/context`, undefined, null)],
     ["qr-menu", () => request(`/qr/${qrToken}/menu`, undefined, null)],

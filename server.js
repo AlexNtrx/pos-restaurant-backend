@@ -80,8 +80,6 @@ require("./routes/staff-orders")(app);
 
 require("./routes/reports")(app);
 
-require("./routes/bills")(app);
-
 require("./routes/organization")(app);
 
 require("./routes/counter")(app);

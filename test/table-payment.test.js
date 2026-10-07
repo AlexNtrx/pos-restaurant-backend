@@ -173,6 +173,18 @@ test("session payment combines orders once, closes session, revokes QR and repla
   assert.equal(bill.BillSaleDetails.length, 4);
   assert.equal(bill.amount, first.total + second.total);
   assert.ok(bill.Orders.every((order) => order.status === "COMPLETED"));
+  for (const order of bill.Orders) {
+    const response = await fetch(`${apiBaseUrl}/orders/${order.id}`, {
+      headers: headersFor(fixture.user),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).result.receipt, {
+      billId: paid.billId,
+      amount: bill.amount,
+      status: "use",
+      orderCount: 2,
+    });
+  }
   const session = await prisma.tableSession.findUnique({
     where: { id: scope.session.id },
   });

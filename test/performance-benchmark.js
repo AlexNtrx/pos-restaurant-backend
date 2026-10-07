@@ -823,12 +823,12 @@ async function main() {
       ),
     () => call("daily-report", "/report/dailySales", { year: 2026, month: 10 }),
     () =>
-      call("bill-history-page", "/billSale/history", {
-        startDate: "2026-10-01",
-        endDate: "2026-10-31",
-        page: 1,
-        pageSize: 50,
-      }),
+      call(
+        "order-history-page",
+        "/orders?submittedFrom=2026-10-01T00:00:00.000Z&submittedBefore=2026-11-01T00:00:00.000Z&limit=50",
+        undefined,
+        fixture.user,
+      ),
     () => call("quote", "/counterOrder/quote", draft(), fixture.user),
     () => call("prebill-pdf", "/counterOrder/prebill", draft(), fixture.user),
   ];

@@ -41,18 +41,16 @@ test("kassa retains cashier/service APIs and cannot acquire kitchen or administr
   for (const [method, path, body] of [
     ["GET", "/user/list"],
     ["GET", "/organization/info"],
-    ["GET", "/qr-mode"],
+    ["PUT", "/qr-mode", { mode: "ORDERING" }],
     ["GET", "/table-sessions/1/qr"],
     ["POST", "/table-sessions/1/rotate-token", { expectedVersion: 1 }],
     ["POST", "/table-sessions/1/close", { expectedVersion: 1 }],
-    ["POST", "/billSale/list", {}],
     ["POST", "/report/sumMonthly", {}],
     [
       "PATCH",
       "/kitchen/orders/1/status",
       { expectedVersion: 1, nextStatus: "PREPARING" },
     ],
-    ["POST", "/orders/1/refund", {}],
     ["PUT", "/food/update", {}],
     ["POST", "/tables", {}],
   ]) {

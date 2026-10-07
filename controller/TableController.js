@@ -65,9 +65,10 @@ module.exports = {
       ),
     }),
   ),
-  getQrMode: handle(async (_req, res) =>
-    res.send({ result: { mode: await tables.getQrMode(prisma) } }),
-  ),
+  getQrMode: handle(async (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    return res.send({ result: { mode: await tables.getQrMode(prisma) } });
+  }),
   setQrMode: handle(async (req, res) =>
     res.send({
       result: { mode: await tables.setQrMode(prisma, req.body?.mode) },

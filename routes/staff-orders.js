@@ -2,7 +2,7 @@ const StaffOrderController = require("../controller/StaffOrderController");
 const KitchenOrderController = require("../controller/KitchenOrderController");
 const WaiterOrderController = require("../controller/WaiterOrderController");
 const {
-  isAdmin,
+  isStaff,
   isAuthen,
   isServiceStaff,
   isOrderReader,
@@ -26,25 +26,25 @@ module.exports = function registerStaffOrdersRoutes(app) {
   app.get(
     "/api/orders/:orderId/refund",
     isAuthen,
-    isAdmin,
+    isStaff,
     StaffOrderController.getRefund,
   );
   app.post(
     "/api/orders/:orderId/refund",
     isAuthen,
-    isAdmin,
+    isStaff,
     StaffOrderController.reserveRefund,
   );
   app.post(
     "/api/orders/:orderId/refund/complete",
     isAuthen,
-    isAdmin,
+    isStaff,
     StaffOrderController.completeRefund,
   );
   app.post(
     "/api/orders/:orderId/refund/fail",
     isAuthen,
-    isAdmin,
+    isStaff,
     StaffOrderController.failRefund,
   );
   app.get(

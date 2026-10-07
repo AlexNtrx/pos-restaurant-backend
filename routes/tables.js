@@ -38,7 +38,9 @@ module.exports = function registerTablesRoutes(app) {
     isStaff,
     TablePaymentController.settle,
   );
-  app.get("/api/qr-mode", isAuthen, isAdmin, TableController.getQrMode);
+  // EN: Authentication checks the active staff role; reading the mode does not grant QR administration.
+  // FI: Tunnistautuminen tarkistaa aktiivisen henkilökuntaroolin; tilan lukeminen ei anna QR-hallintaoikeuksia.
+  app.get("/api/qr-mode", isAuthen, TableController.getQrMode);
   app.get(
     "/api/table-sessions/:sessionId/qr",
     isAuthen,

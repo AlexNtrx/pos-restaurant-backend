@@ -867,11 +867,20 @@ test("receipts stream complete PDFs by authorized bill id and legacy files are b
   });
   assert.ok(bill);
 
-  const denied = await fetch(`${apiBaseUrl}/saleTemp/printBillAfterPay`, {
-    method: "POST",
-    ...jsonRequest(otherToken, { billId: bill.id }),
-  });
-  assert.equal(denied.status, 404);
+  const colleagueReceipt = await fetch(
+    `${apiBaseUrl}/saleTemp/printBillAfterPay`,
+    {
+      method: "POST",
+      ...jsonRequest(otherToken, { billId: bill.id }),
+    },
+  );
+  assert.equal(colleagueReceipt.status, 200);
+  assert.equal(
+    Buffer.from(await colleagueReceipt.arrayBuffer())
+      .subarray(0, 4)
+      .toString(),
+    "%PDF",
+  );
 
   const receipt = await fetch(`${apiBaseUrl}/saleTemp/printBillAfterPay`, {
     method: "POST",

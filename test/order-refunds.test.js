@@ -58,7 +58,9 @@ const request = (order) => ({
 test("refund reservation freezes kitchen, keeps payment, and manual completion is idempotent", async () => {
   const { bill, order } = await prepaid();
   const intent = request(order);
+  intent.actor = { type: "STAFF", userId: fixture.user.id, level: "kassa" };
   const reserved = await reserveRefund(prisma, intent);
+  assert.equal(reserved.reservedByUserId, fixture.user.id);
   assert.equal(reserved.status, "PENDING");
   assert.equal(reserved.amount, bill.amount);
   assert.equal((await reserveRefund(prisma, intent)).id, reserved.id);
@@ -75,7 +77,7 @@ test("refund reservation freezes kitchen, keeps payment, and manual completion i
     (e) => e.code === "STALE_VERSION",
   );
   const completion = {
-    actor: actor(),
+    actor: intent.actor,
     orderId: order.id,
     body: {
       idempotencyKey: reserved.idempotencyKey,
@@ -97,6 +99,7 @@ test("refund reservation freezes kitchen, keeps payment, and manual completion i
   );
   const completed = await finishRefund(prisma, completion);
   assert.equal(completed.status, "COMPLETED");
+  assert.equal(completed.confirmedByUserId, fixture.user.id);
   assert.equal((await finishRefund(prisma, completion)).id, completed.id);
   assert.equal(
     await prisma.orderRefund.count({ where: { orderId: order.id } }),
@@ -154,18 +157,12 @@ test("refund and kitchen start cannot both commit, and admin cannot refund after
     (e) => e.code === "ORDER_NOT_CANCELLABLE",
   );
 });
-test("refund APIs require admin and reject financial tampering and direct bill void", async () => {
+test("refund APIs allow cashiers, reject financial tampering and retire direct bill void", async () => {
   const { order, bill } = await prepaid();
   const intent = request(order);
   let response = await fetch(`${api.apiBaseUrl}/orders/${order.id}/refund`, {
     method: "POST",
     headers: headersFor(fixture.user),
-    body: JSON.stringify(intent.body),
-  });
-  assert.equal(response.status, 403);
-  response = await fetch(`${api.apiBaseUrl}/orders/${order.id}/refund`, {
-    method: "POST",
-    headers: headersFor(fixture.admin),
     body: JSON.stringify({ ...intent.body, amount: 1 }),
   });
   assert.equal(response.status, 400);
@@ -174,11 +171,53 @@ test("refund APIs require admin and reject financial tampering and direct bill v
     headers: headersFor(fixture.admin),
     body: JSON.stringify({ reason: "Bypass attempt" }),
   });
-  assert.equal(response.status, 409);
+  assert.equal(response.status, 404);
   assert.equal(
     await prisma.orderRefund.count({ where: { orderId: order.id } }),
     0,
   );
+  response = await fetch(`${api.apiBaseUrl}/orders/${order.id}/refund`, {
+    method: "POST",
+    headers: headersFor(fixture.user),
+    body: JSON.stringify(intent.body),
+  });
+  assert.equal(response.status, 200);
+  const reserved = (await response.json()).result;
+  assert.equal(reserved.reservedByUserId, fixture.user.id);
+  await prisma.user.update({
+    where: { id: fixture.user.id },
+    data: { level: "waiter" },
+  });
+  try {
+    response = await fetch(
+      `${api.apiBaseUrl}/orders/${order.id}/refund/complete`,
+      {
+        method: "POST",
+        headers: headersFor({ ...fixture.user, level: "admin" }),
+        body: JSON.stringify({
+          idempotencyKey: reserved.idempotencyKey,
+          reference: "Refund proof",
+        }),
+      },
+    );
+    assert.equal(response.status, 403);
+    await assert.rejects(
+      finishRefund(prisma, {
+        actor: { type: "STAFF", userId: fixture.user.id, level: "admin" },
+        orderId: order.id,
+        body: {
+          idempotencyKey: reserved.idempotencyKey,
+          reference: "Refund proof",
+        },
+      }),
+      (e) => e.code === "FORBIDDEN",
+    );
+  } finally {
+    await prisma.user.update({
+      where: { id: fixture.user.id },
+      data: { level: "kassa" },
+    });
+  }
 });
 
 test("sales reports retain pending payments and deduct only confirmed refunds without changing bill snapshots", async () => {

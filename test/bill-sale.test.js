@@ -1,178 +1,169 @@
 const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
-const { once } = require("node:events");
-const jwt = require("jsonwebtoken");
-const { PrismaClient } = require("@prisma/client");
-const { createTestFixture, cleanupTestFixture } = require("./helpers");
-
-const prisma = new PrismaClient();
-let apiBaseUrl;
-let apiServer;
-let admin;
-let regularUser;
-let food;
-const billIds = [];
-let fixture;
-// Coordinates headers for behavior for this module.
-const headersFor = (user) => ({
-  Authorization: `Bearer ${jwt.sign({ id: user.id, level: user.level }, process.env.SECRET_KEY, { expiresIn: "5m" })}`,
-  "Content-Type": "application/json",
-});
-
-// Creates bill with the current contract.
-const createBill = async (amount, payDate) => {
-  const bill = await prisma.billSale.create({
-    data: {
-      amount,
-      payType: "cash",
-      payDate,
-      createdDate: payDate,
-      userId: admin.id,
-      inputMoney: amount,
-      returnMoney: 0,
-      tableNo: 99,
-      status: "use",
-      BillSaleDetails: {
-        create: [
-          {
-            foodId: food.id,
-            price: amount,
-            moneyAdded: 0,
-            foodName: `Snapshot ${amount}`,
-            foodSizeName: null,
-            tasteName: null,
-          },
-        ],
-      },
-    },
-  });
-  billIds.push(bill.id);
-  return bill;
-};
-
+const { randomUUID } = require("node:crypto");
+const {
+  prisma,
+  createTestFixture,
+  cleanupTestFixture,
+  startApiServer,
+  stopApiServer,
+  headersFor,
+  beginOrganizationFixture,
+  restoreOrganizationFixture,
+} = require("./helpers");
+const { checkoutCounterDraft } = require("../lib/order-service");
+const { printBillAfterPay } = require("../lib/legacy-receipt-service");
+let api, fixture, organization;
 before(async () => {
-  const { app } = require("../server");
-  apiServer = app.listen(0, "127.0.0.1");
-  if (!apiServer.listening) await once(apiServer, "listening");
-  apiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/api`;
   fixture = await createTestFixture();
-  admin = fixture.admin;
-  regularUser = fixture.user;
-  food = fixture.food;
+  organization = await beginOrganizationFixture();
+  api = await startApiServer();
 });
 after(async () => {
-  if (billIds.length) {
-    await prisma.billSaleDetail.deleteMany({
-      where: { billSaleId: { in: billIds } },
-    });
-    await prisma.billSale.deleteMany({ where: { id: { in: billIds } } });
-  }
-  if (apiServer?.listening)
-    await new Promise((resolve, reject) =>
-      apiServer.close((error) => (error ? reject(error) : resolve())),
-    );
-  await prisma.$disconnect();
+  await stopApiServer(api?.server);
   await cleanupTestFixture(fixture);
+  await restoreOrganizationFixture(organization);
+  await prisma.$disconnect();
 });
-
-test("bill history is admin-only and validates an inclusive date range", async () => {
-  const [userResponse, invalidResponse] = await Promise.all([
-    fetch(`${apiBaseUrl}/billSale/list`, {
-      method: "POST",
-      headers: headersFor(regularUser),
-      body: JSON.stringify({ startDate: "2026-01-01", endDate: "2026-01-01" }),
-    }),
-    fetch(`${apiBaseUrl}/billSale/list`, {
-      method: "POST",
-      headers: headersFor(admin),
-      body: JSON.stringify({ startDate: "2026-01-03", endDate: "2026-01-01" }),
-    }),
-  ]);
-  assert.equal(userResponse.status, 403);
-  assert.equal(invalidResponse.status, 400);
-});
-
-test("history uses payDate range, immutable snapshots, and active-only financial totals", async () => {
-  const first = await createBill(101, new Date(Date.UTC(2026, 0, 10, 8)));
-  const second = await createBill(202, new Date(Date.UTC(2026, 0, 12, 8)));
-  const response = await fetch(`${apiBaseUrl}/billSale/list`, {
-    method: "POST",
-    headers: headersFor(admin),
-    body: JSON.stringify({ startDate: "2026-01-10", endDate: "2026-01-10" }),
-  });
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  const listed = body.results.find((bill) => bill.id === first.id);
-  assert.ok(listed);
-  assert.equal(
-    body.results.some((bill) => bill.id === second.id),
-    false,
-  );
-  assert.equal(listed.BillSaleDetails[0].foodName, "Snapshot 101");
-  assert.equal(body.summary.activeAmount, 101);
-});
-
-test("history interprets selected dates as Europe/Helsinki calendar days", async () => {
-  const atStart = await createBill(404, new Date("2026-01-19T22:00:00.000Z"));
-  const beforeEnd = await createBill(505, new Date("2026-01-20T21:59:59.999Z"));
-  const nextDay = await createBill(606, new Date("2026-01-20T22:00:00.000Z"));
-  const response = await fetch(`${apiBaseUrl}/billSale/list`, {
-    method: "POST",
-    headers: headersFor(admin),
-    body: JSON.stringify({ startDate: "2026-01-20", endDate: "2026-01-20" }),
-  });
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  const ids = body.results.map((bill) => bill.id);
-  assert.ok(ids.includes(atStart.id));
-  assert.ok(ids.includes(beforeEnd.id));
-  assert.equal(ids.includes(nextDay.id), false);
-  assert.equal(body.summary.activeAmount, 909);
-});
-
-test("cancellation requires an audited reason and preserves the bill for history", async () => {
-  const bill = await createBill(303, new Date(Date.UTC(2026, 0, 15, 8)));
-  const invalidResponse = await fetch(
-    `${apiBaseUrl}/billSale/remove/${bill.id}`,
-    {
-      method: "DELETE",
-      headers: headersFor(admin),
-      body: JSON.stringify({ reason: "no" }),
+const prepaid = () =>
+  checkoutCounterDraft(prisma, {
+    actor: { type: "STAFF", userId: fixture.admin.id, level: "admin" },
+    idempotencyKey: randomUUID(),
+    intent: {
+      serviceType: "TAKEAWAY",
+      items: [{ foodId: fixture.food.id, quantity: 1 }],
     },
-  );
-  assert.equal(invalidResponse.status, 400);
-  const cancelResponse = await fetch(
-    `${apiBaseUrl}/billSale/remove/${bill.id}`,
-    {
-      method: "DELETE",
-      headers: headersFor(admin),
-      body: JSON.stringify({ reason: "Customer requested cancellation" }),
-    },
-  );
-  assert.equal(cancelResponse.status, 200);
-  const cancelled = await prisma.billSale.findUnique({
-    where: { id: bill.id },
+    expectedTotal: 20,
+    payType: "bank",
   });
-  assert.equal(cancelled.status, "cancelled");
-  assert.equal(cancelled.cancelledByUserId, admin.id);
-  assert.ok(cancelled.cancelledAt);
-  assert.equal(cancelled.cancelReason, "Customer requested cancellation");
-  const secondCancel = await fetch(`${apiBaseUrl}/billSale/remove/${bill.id}`, {
-    method: "DELETE",
-    headers: headersFor(admin),
-    body: JSON.stringify({ reason: "Second request" }),
-  });
-  assert.equal(secondCancel.status, 409);
-  const historyResponse = await fetch(`${apiBaseUrl}/billSale/list`, {
-    method: "POST",
-    headers: headersFor(admin),
-    body: JSON.stringify({ startDate: "2026-01-15", endDate: "2026-01-15" }),
-  });
-  const history = await historyResponse.json();
-  assert.equal(
-    history.results.find((item) => item.id === bill.id).status,
-    "cancelled",
+
+test("retired bill history and void endpoints return not-found and cannot alter payments", async () => {
+  const bill = await prepaid();
+  for (const [method, path] of [
+    ["POST", "/billSale/list"],
+    ["POST", "/billSale/history"],
+    ["GET", "/billSale/detail/" + bill.id],
+    ["DELETE", "/billSale/remove/" + bill.id],
+  ]) {
+    const response = await fetch(api.apiBaseUrl + path, {
+      method,
+      headers: headersFor(fixture.admin),
+      ...(method === "GET"
+        ? {}
+        : { body: JSON.stringify({ reason: "Old void request" }) }),
+    });
+    assert.equal(response.status, 404, path);
+    await response.body?.cancel();
+  }
+  const original = await prisma.billSale.findUnique({ where: { id: bill.id } });
+  assert.equal(original.status, "use");
+  assert.equal(original.amount, 20);
+  assert.equal(original.cancelledAt, null);
+});
+test("Order detail supplies original bill metadata to another cashier without eager receipt lines", async () => {
+  const bill = await prepaid();
+  const response = await fetch(
+    api.apiBaseUrl + "/orders/" + bill.Orders[0].id,
+    { headers: headersFor(fixture.user) },
   );
-  assert.equal(history.summary.activeAmount, 0);
-  assert.equal(history.summary.cancelledAmount, 303);
+  assert.equal(response.status, 200);
+  const detail = (await response.json()).result;
+  assert.deepEqual(detail.receipt, {
+    billId: bill.id,
+    amount: 20,
+    status: "use",
+    orderCount: 1,
+  });
+  assert.equal(detail.BillSaleDetails, undefined);
+});
+test("cashier copies preserve receipt snapshots after the catalog changes", async () => {
+  const bill = await prepaid();
+  const snapshot = await printBillAfterPay({
+    user: fixture.admin,
+    body: { billId: bill.id },
+  });
+  const food = await prisma.food.findUnique({ where: { id: fixture.food.id } });
+  await prisma.food.update({
+    where: { id: fixture.food.id },
+    data: { name: "Changed catalog", price: 99 },
+  });
+  try {
+    const copy = await printBillAfterPay({
+      user: fixture.user,
+      body: { billId: bill.id },
+    });
+    assert.deepEqual(copy.receipt, snapshot.receipt);
+    assert.equal(copy.receipt.cashierName, fixture.admin.name);
+    const response = await fetch(
+      api.apiBaseUrl + "/saleTemp/printBillAfterPay",
+      {
+        method: "POST",
+        headers: headersFor(fixture.user),
+        body: JSON.stringify({ billId: bill.id }),
+      },
+    );
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /application\/pdf/);
+    assert.equal(
+      Buffer.from(await response.arrayBuffer())
+        .subarray(0, 4)
+        .toString(),
+      "%PDF",
+    );
+  } finally {
+    await prisma.food.update({
+      where: { id: food.id },
+      data: { name: food.name, price: food.price },
+    });
+  }
+});
+test("receipt access rechecks current roles, rejects inactive staff and omits payment metadata for service roles", async () => {
+  const bill = await prepaid();
+  for (const level of ["waiter", "kitchen"]) {
+    await prisma.user.update({
+      where: { id: fixture.user.id },
+      data: { level },
+    });
+    try {
+      const receipt = await fetch(
+        api.apiBaseUrl + "/saleTemp/printBillAfterPay",
+        {
+          method: "POST",
+          headers: headersFor({ ...fixture.user, level: "admin" }),
+          body: JSON.stringify({ billId: bill.id }),
+        },
+      );
+      assert.equal(receipt.status, 403);
+      await assert.rejects(
+        printBillAfterPay({ user: fixture.user, body: { billId: bill.id } }),
+        (e) => e.status === 403,
+      );
+      const detail = await fetch(
+        api.apiBaseUrl + "/orders/" + bill.Orders[0].id,
+        { headers: headersFor(fixture.user) },
+      );
+      assert.equal(detail.status, 200);
+      assert.equal((await detail.json()).result.receipt, undefined);
+    } finally {
+      await prisma.user.update({
+        where: { id: fixture.user.id },
+        data: { level: "kassa" },
+      });
+    }
+  }
+  await prisma.user.update({
+    where: { id: fixture.user.id },
+    data: { status: "delete" },
+  });
+  try {
+    await assert.rejects(
+      printBillAfterPay({ user: fixture.user, body: { billId: bill.id } }),
+      (e) => e.status === 403,
+    );
+  } finally {
+    await prisma.user.update({
+      where: { id: fixture.user.id },
+      data: { status: "use" },
+    });
+  }
 });
