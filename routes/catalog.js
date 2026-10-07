@@ -7,7 +7,6 @@ const { isAdmin, isAuthen, isStaff } = require("../middleware/auth");
 
 module.exports = function registerCatalogRoutes(app) {
   //food
-  app.post("/api/food/paginate", isAuthen, isAdmin, FoodController.paginate);
   app.get(
     "/api/food/filter/:foodType",
     isAuthen,

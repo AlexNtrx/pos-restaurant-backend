@@ -168,22 +168,22 @@ test("staff can load the active POS catalog while only admins can use the manage
   await adminManagementResponse.body?.cancel();
 });
 
-test("user creation and food pagination require authentication", async () => {
-  const [createUserResponse, paginateResponse] = await Promise.all([
+test("user and food creation require authentication", async () => {
+  const [createUserResponse, createFoodResponse] = await Promise.all([
     fetch(`${apiBaseUrl}/user/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     }),
-    fetch(`${apiBaseUrl}/food/paginate`, {
+    fetch(`${apiBaseUrl}/food/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ page: 1, itemsPerPage: 1 }),
+      body: JSON.stringify({}),
     }),
   ]);
 
   assert.equal(createUserResponse.status, 401);
-  assert.equal(paginateResponse.status, 401);
+  assert.equal(createFoodResponse.status, 401);
 });
 
 test("food creation and upload require admin", async () => {

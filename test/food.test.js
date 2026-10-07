@@ -60,26 +60,13 @@ after(async () => {
   await cleanupTestFixture(fixture);
 });
 
-test("food-management routes are admin-only and reject invalid pagination", async () => {
-  const [listResponse, paginateResponse, createResponse, invalidPagination] =
-    await Promise.all([
-      fetch(`${apiBaseUrl}/food/list`, { headers: headersFor(regularUser) }),
-      fetch(`${apiBaseUrl}/food/paginate`, {
-        method: "POST",
-        headers: headersFor(regularUser),
-        body: JSON.stringify({ page: 1, itemsPerPage: 10 }),
-      }),
-      createFood({}, regularUser),
-      fetch(`${apiBaseUrl}/food/paginate`, {
-        method: "POST",
-        headers: headersFor(admin),
-        body: JSON.stringify({ page: 0, itemsPerPage: 101 }),
-      }),
-    ]);
+test("food-management routes are admin-only", async () => {
+  const [listResponse, createResponse] = await Promise.all([
+    fetch(`${apiBaseUrl}/food/list`, { headers: headersFor(regularUser) }),
+    createFood({}, regularUser),
+  ]);
   assert.equal(listResponse.status, 403);
-  assert.equal(paginateResponse.status, 403);
   assert.equal(createResponse.status, 403);
-  assert.equal(invalidPagination.status, 400);
 });
 
 test("food CRUD validates active category and preserves the requested image name", async () => {
@@ -185,7 +172,7 @@ test("food CRUD validates active category and preserves the requested image name
   );
 });
 
-test("image upload requires one supported image and pagination returns a typed page", async () => {
+test("image upload requires one supported image", async () => {
   const noFileResponse = await fetch(`${apiBaseUrl}/food/upload`, {
     method: "POST",
     headers: { Authorization: headersFor(admin).Authorization },
@@ -229,17 +216,4 @@ test("image upload requires one supported image and pagination returns a typed p
   assert.equal(uploadResponse.status, 201);
   assert.match(upload.fileName, /^[0-9a-f-]+\.png$/);
   uploadedFiles.push(upload.fileName);
-
-  const paginationResponse = await fetch(`${apiBaseUrl}/food/paginate`, {
-    method: "POST",
-    headers: headersFor(admin),
-    body: JSON.stringify({ page: 1, itemsPerPage: 10 }),
-  });
-  const pagination = await paginationResponse.json();
-  assert.equal(paginationResponse.status, 200);
-  assert.ok(Array.isArray(pagination.results));
-  assert.ok(
-    Number.isInteger(pagination.totalItems) &&
-      Number.isInteger(pagination.totalPages),
-  );
 });

@@ -1,8 +1,22 @@
 const prisma = require("../lib/prisma");
-const { readSalesBuckets } = require("../lib/sales-report");
+const {
+  readSalesBuckets,
+  readDailySalesBreakdown,
+} = require("../lib/sales-report");
 
 const MIN_REPORT_YEAR = 2000;
 const MAX_REPORT_YEAR = 2100;
+
+const emptyDailyBreakdown = () => ({
+  grossAmount: 0,
+  refundedAmount: 0,
+  pendingRefundAmount: 0,
+  failedRefundAmount: 0,
+  unpaidCancelledCount: 0,
+  unpaidCancelledAmount: 0,
+  paidCancelledCount: 0,
+  paidCancelledAmount: 0,
+});
 
 // Coordinates report integer behavior for this module.
 const reportInteger = (value, minimum, maximum) => {
@@ -41,23 +55,33 @@ module.exports = {
 
     try {
       const { start, endExclusive } = utcMonthBounds(year, month);
-      const buckets = await readSalesBuckets(prisma, {
+      const buckets = await readDailySalesBreakdown(prisma, {
         start,
         endExclusive,
-        bucket: "day",
       });
-      const amountsByDay = new Map(
-        buckets.map(({ bucket, amount }) => [bucket, amount]),
+      const breakdownsByDay = new Map(
+        buckets.map(({ bucket, ...breakdown }) => [bucket, breakdown]),
       );
       const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
       const results = Array.from({ length: daysInMonth }, (_, index) => {
         const date = new Date(Date.UTC(year, month - 1, index + 1))
           .toISOString()
           .slice(0, 10);
-        return { date, amount: amountsByDay.get(index + 1) || 0 };
+        const breakdown =
+          breakdownsByDay.get(index + 1) ?? emptyDailyBreakdown();
+        return {
+          date,
+          amount: breakdown.grossAmount - breakdown.refundedAmount,
+          breakdown,
+        };
       });
       const totalAmount = results.reduce((sum, item) => sum + item.amount, 0);
-      return res.send({ results, totalAmount });
+      const summary = emptyDailyBreakdown();
+      for (const { breakdown } of results)
+        for (const field of Object.keys(summary))
+          summary[field] += breakdown[field];
+      res.set("Cache-Control", "no-store");
+      return res.send({ results, totalAmount, summary });
     } catch {
       return res
         .status(500)

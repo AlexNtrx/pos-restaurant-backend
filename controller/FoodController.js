@@ -1,12 +1,10 @@
 const writes = require("../lib/food-write-service");
 const { CatalogWriteError } = require("../lib/catalog-write-error");
 const prisma = require("../lib/prisma");
-const { positiveInteger } = require("../lib/catalog-validation");
 const path = require("node:path");
 const { storeImage, validateImageFile } = require("../lib/image-upload");
 const { ImageProcessingError } = require("../lib/image-variants");
 
-const MAX_PAGE_SIZE = 100;
 const uploadDirectory = path.resolve("uploads");
 
 // Coordinates send known error behavior for this module.
@@ -121,37 +119,6 @@ module.exports = {
       return res.send({ results: foods });
     } catch {
       return res.status(500).send({ error: "Internal server error" });
-    }
-  },
-
-  // Coordinates paginate behavior for this module.
-  paginate: async (req, res) => {
-    const page = positiveInteger(req.body?.page);
-    const itemsPerPage = positiveInteger(req.body?.itemsPerPage);
-    if (!page || !itemsPerPage || itemsPerPage > MAX_PAGE_SIZE) {
-      return res.status(400).send({
-        error: "page must be positive and itemsPerPage must be 1-100",
-      });
-    }
-
-    try {
-      const where = { status: "use" };
-      const [foods, totalItems] = await prisma.$transaction([
-        prisma.food.findMany({
-          skip: (page - 1) * itemsPerPage,
-          take: itemsPerPage,
-          orderBy: { id: "desc" },
-          where,
-        }),
-        prisma.food.count({ where }),
-      ]);
-      return res.send({
-        results: foods,
-        totalItems,
-        totalPages: Math.ceil(totalItems / itemsPerPage),
-      });
-    } catch {
-      return res.status(500).send({ error: "Unable to paginate foods" });
     }
   },
 };

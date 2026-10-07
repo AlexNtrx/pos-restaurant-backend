@@ -158,8 +158,14 @@ test("daily sales uses UTC payDate, bill totals, exclusive boundaries, and activ
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.results.length, 28);
-  assert.deepEqual(body.results[0], { date: "2026-02-01", amount: 101 });
-  assert.deepEqual(body.results[27], { date: "2026-02-28", amount: 202 });
+  assert.deepEqual(
+    { date: body.results[0].date, amount: body.results[0].amount },
+    { date: "2026-02-01", amount: 101 },
+  );
+  assert.deepEqual(
+    { date: body.results[27].date, amount: body.results[27].amount },
+    { date: "2026-02-28", amount: 202 },
+  );
   assert.equal(body.results[13].amount, 0);
   assert.equal(body.totalAmount, 303);
 });
