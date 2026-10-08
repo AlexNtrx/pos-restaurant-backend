@@ -59,6 +59,7 @@ app.use("/uploads", express.static("uploads"));
 app.use(
   [
     "/api/food/list",
+    "/api/food/page",
     "/api/food/filter",
     "/api/foodType/list",
     "/api/foodSize/list",

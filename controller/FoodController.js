@@ -1,6 +1,10 @@
 const writes = require("../lib/food-write-service");
 const { CatalogWriteError } = require("../lib/catalog-write-error");
 const prisma = require("../lib/prisma");
+const {
+  parseFoodPageQuery,
+  readFoodPage,
+} = require("../lib/food-page-service");
 const path = require("node:path");
 const { storeImage, validateImageFile } = require("../lib/image-upload");
 const { ImageProcessingError } = require("../lib/image-variants");
@@ -63,6 +67,16 @@ module.exports = {
         orderBy: { id: "desc" },
       });
       return res.send({ results: foods });
+    } catch {
+      return res.status(500).send({ error: "Unable to list foods" });
+    }
+  },
+
+  page: async (req, res) => {
+    const filters = parseFoodPageQuery(req.query);
+    if (filters.error) return res.status(400).send({ error: filters.error });
+    try {
+      return res.send(await readFoodPage(prisma, filters));
     } catch {
       return res.status(500).send({ error: "Unable to list foods" });
     }

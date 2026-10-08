@@ -22,6 +22,7 @@ module.exports = function registerCatalogRoutes(app) {
   );
   app.post("/api/food/create", isAuthen, isAdmin, FoodController.create);
   app.get("/api/food/list", isAuthen, isAdmin, FoodController.list);
+  app.get("/api/food/page", isAuthen, isAdmin, FoodController.page);
   app.delete("/api/food/remove/:id", isAuthen, isAdmin, FoodController.remove);
   app.put("/api/food/update", isAuthen, isAdmin, FoodController.update);
   //foodtaste
