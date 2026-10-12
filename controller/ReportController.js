@@ -1,4 +1,9 @@
+const { sendMoney } = require("../lib/money-dto");
 const prisma = require("../lib/prisma");
+const {
+  restaurantMonthBounds,
+  restaurantYearBounds,
+} = require("../lib/restaurant-calendar");
 const {
   readSalesBuckets,
   readDailySalesBreakdown,
@@ -8,14 +13,14 @@ const MIN_REPORT_YEAR = 2000;
 const MAX_REPORT_YEAR = 2100;
 
 const emptyDailyBreakdown = () => ({
-  grossAmount: 0,
-  refundedAmount: 0,
-  pendingRefundAmount: 0,
-  failedRefundAmount: 0,
+  grossAmount: 0n,
+  refundedAmount: 0n,
+  pendingRefundAmount: 0n,
+  failedRefundAmount: 0n,
   unpaidCancelledCount: 0,
-  unpaidCancelledAmount: 0,
+  unpaidCancelledAmount: 0n,
   paidCancelledCount: 0,
-  paidCancelledAmount: 0,
+  paidCancelledAmount: 0n,
 });
 
 // Coordinates report integer behavior for this module.
@@ -25,18 +30,6 @@ const reportInteger = (value, minimum, maximum) => {
     ? parsed
     : null;
 };
-
-// Coordinates utc month bounds behavior for this module.
-const utcMonthBounds = (year, month) => ({
-  start: new Date(Date.UTC(year, month - 1, 1)),
-  endExclusive: new Date(Date.UTC(year, month, 1)),
-});
-
-// Coordinates utc year bounds behavior for this module.
-const utcYearBounds = (year) => ({
-  start: new Date(Date.UTC(year, 0, 1)),
-  endExclusive: new Date(Date.UTC(year + 1, 0, 1)),
-});
 
 module.exports = {
   // Coordinates sum per day in year and month behavior for this module.
@@ -54,7 +47,7 @@ module.exports = {
     }
 
     try {
-      const { start, endExclusive } = utcMonthBounds(year, month);
+      const { start, endExclusive } = restaurantMonthBounds(year, month);
       const buckets = await readDailySalesBreakdown(prisma, {
         start,
         endExclusive,
@@ -75,13 +68,13 @@ module.exports = {
           breakdown,
         };
       });
-      const totalAmount = results.reduce((sum, item) => sum + item.amount, 0);
+      const totalAmount = results.reduce((sum, item) => sum + item.amount, 0n);
       const summary = emptyDailyBreakdown();
       for (const { breakdown } of results)
         for (const field of Object.keys(summary))
           summary[field] += breakdown[field];
       res.set("Cache-Control", "no-store");
-      return res.send({ results, totalAmount, summary });
+      return sendMoney(res, { results, totalAmount, summary });
     } catch {
       return res
         .status(500)
@@ -102,7 +95,7 @@ module.exports = {
     }
 
     try {
-      const { start, endExclusive } = utcYearBounds(year);
+      const { start, endExclusive } = restaurantYearBounds(year);
       const buckets = await readSalesBuckets(prisma, {
         start,
         endExclusive,
@@ -113,10 +106,11 @@ module.exports = {
       );
       const results = Array.from({ length: 12 }, (_, index) => ({
         month: String(index + 1).padStart(2, "0"),
-        amount: amountsByMonth.get(index + 1) || 0,
+        amount: amountsByMonth.get(index + 1) ?? 0n,
       }));
-      const totalAmount = results.reduce((sum, item) => sum + item.amount, 0);
-      return res.send({ results, totalAmount });
+      const totalAmount = results.reduce((sum, item) => sum + item.amount, 0n);
+      res.set("Cache-Control", "no-store");
+      return sendMoney(res, { results, totalAmount });
     } catch {
       return res
         .status(500)

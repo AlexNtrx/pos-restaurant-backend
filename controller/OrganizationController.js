@@ -31,7 +31,22 @@ module.exports = {
   info: async (_req, res) => {
     try {
       return res.send({
-        result: await prisma.organization.findFirst({ orderBy: { id: "asc" } }),
+        // EN: Keep the legacy settings response unchanged when internal tax draft columns are added.
+        // FI: Säilytä vanha asetusvastaus muuttumattomana, kun sisäiset veroluonnossarakkeet lisätään.
+        result: await prisma.organization.findFirst({
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            address: true,
+            email: true,
+            website: true,
+            bankNo: true,
+            logo: true,
+            taxCode: true,
+          },
+        }),
       });
     } catch {
       return res.status(500).send({ error: "Unable to load organization" });

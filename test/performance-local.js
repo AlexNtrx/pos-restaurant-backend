@@ -7,6 +7,9 @@
 // EN: Add --auth-delay-ms=25000 to --verify-browser to simulate slow authentication without changing application routes.
 // FI: Lisää --verify-browser-tilaan --auth-delay-ms=25000 simuloidaksesi hidasta tunnistautumista muuttamatta sovelluksen reittejä.
 require("./bootstrap");
+// EN: This legacy comparison harness measures the explicit gross-only profile; use performance-benchmark --vat-demo for tax snapshots.
+// FI: Tämä vanha vertailutesti mittaa nimenomaisesti bruttohintakäytäntöä; käytä performance-benchmark --vat-demo verotallenteille.
+process.env.VAT_DEMO_ENABLED = "false";
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const { writeFileSync, mkdirSync } = require("node:fs");
@@ -171,7 +174,7 @@ async function seedVolume() {
     data: Array.from({ length: 999 }, (_, i) => ({
       name: `${fixture.marker}-menu-${i}`,
       remark: "",
-      price: 20,
+      price: 2000n,
       img: "",
       foodTypeId: fixture.category.id,
     })),
@@ -187,9 +190,9 @@ async function seedVolume() {
       restaurantTableId: queueTable.id,
       tableSessionId: queueSession.id,
       createdByUserId: fixture.admin.id,
-      subtotal: 40,
-      modifierTotal: 0,
-      total: 40,
+      subtotal: 4000n,
+      modifierTotal: 0n,
+      total: 4000n,
       idempotencyScope: fixture.marker,
       idempotencyKey: `${fixture.marker}-${i}`,
       idempotencyFingerprint: "0".repeat(64),
@@ -205,10 +208,10 @@ async function seedVolume() {
       foodId: fixture.food.id,
       foodName: fixture.food.name,
       quantity: 2,
-      unitBasePrice: 20,
-      unitModifierTotal: 0,
-      unitTotal: 20,
-      lineTotal: 40,
+      unitBasePrice: 2000n,
+      unitModifierTotal: 0n,
+      unitTotal: 2000n,
+      lineTotal: 4000n,
     })),
   });
   await prisma.orderStatusHistory.createMany({
@@ -223,12 +226,12 @@ async function seedVolume() {
   for (let batch = 0; batch < 10; batch++) {
     await prisma.billSale.createMany({
       data: Array.from({ length: 1000 }, (_, i) => ({
-        amount: 20,
+        amount: 2000n,
         serviceType: "TAKEAWAY",
         payType: "cash",
         userId: fixture.admin.id,
-        inputMoney: 20,
-        returnMoney: 0,
+        inputMoney: 2000n,
+        returnMoney: 0n,
         payDate: new Date(Date.UTC(2026, 9, 1 + (i % 28), 12)),
         idempotencyKey: `${fixture.marker}-bill-${batch}-${i}`,
       })),
@@ -243,7 +246,7 @@ async function seedVolume() {
       data: bills.slice(offset, offset + 1000).map((bill) => ({
         billSaleId: bill.id,
         foodId: fixture.food.id,
-        price: 20,
+        price: 2000n,
         foodName: fixture.food.name,
       })),
     });
@@ -349,17 +352,18 @@ async function workflow(source = "waiter") {
   if (qr) {
     await call(`/qr/${token}/orders/${order.orderId}`, undefined, null);
     order = (await call(`/orders/${order.orderId}`)).result;
-    order = (
-      await call(
-        `/orders/${order.id}/status`,
-        {
-          expectedVersion: order.version,
-          nextStatus: "CONFIRMED",
-        },
-        waiterHeaders,
-        "PATCH",
-      )
-    ).result;
+    if (order.status === "SUBMITTED")
+      order = (
+        await call(
+          `/orders/${order.id}/status`,
+          {
+            expectedVersion: order.version,
+            nextStatus: "CONFIRMED",
+          },
+          waiterHeaders,
+          "PATCH",
+        )
+      ).result;
   }
   for (const nextStatus of ["PREPARING", "READY"])
     order = (

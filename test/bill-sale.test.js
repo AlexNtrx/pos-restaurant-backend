@@ -57,7 +57,7 @@ test("retired bill history and void endpoints return not-found and cannot alter 
   }
   const original = await prisma.billSale.findUnique({ where: { id: bill.id } });
   assert.equal(original.status, "use");
-  assert.equal(original.amount, 20);
+  assert.equal(original.amount, 2000n);
   assert.equal(original.cancelledAt, null);
 });
 test("Order detail supplies original bill metadata to another cashier without eager receipt lines", async () => {
@@ -85,7 +85,7 @@ test("cashier copies preserve receipt snapshots after the catalog changes", asyn
   const food = await prisma.food.findUnique({ where: { id: fixture.food.id } });
   await prisma.food.update({
     where: { id: fixture.food.id },
-    data: { name: "Changed catalog", price: 99 },
+    data: { name: "Changed catalog", price: 9900n },
   });
   try {
     const copy = await printBillAfterPay({

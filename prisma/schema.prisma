@@ -44,7 +44,7 @@ model FoodSize {
   name               String
   remark             String
   foodTypeId         Int
-  moneyAdded         Int
+  moneyAdded         BigInt
   status             String              @default("use")
   FoodType           FoodType            @relation(fields: [foodTypeId], references: [id])
   saleTempDetails    SaleTempDetail[]
@@ -71,9 +71,10 @@ model Food {
   detailImg       String           @default("")
   remark          String
   status          String           @default("use")
-  price           Int
+  price           BigInt
   foodTypeId      Int
   foodType        String           @default("food")
+  taxCategory     String?
   FoodType        FoodType         @relation(fields: [foodTypeId], references: [id])
   SaleTempDetails SaleTempDetail[]
   SaleTemps       SaleTemp[]
@@ -109,26 +110,119 @@ model SaleTempDetail {
 }
 
 model Organization {
-  id      Int    @id() @default(autoincrement())
-  name    String
-  phone   String
-  address String
-  email   String
-  website String
-  bankNo  String
-  logo    String
-  taxCode String
+  id                 Int                     @id() @default(autoincrement())
+  name               String
+  phone              String
+  address            String
+  email              String
+  website            String
+  bankNo             String
+  logo               String
+  taxCode            String
+  // EN: Editable admin draft only; payments do not consume this configuration.
+  // FI: Vain ylläpitäjän muokattava luonnos; maksut eivät käytä tätä määritystä.
+  taxSettingsDraft   Json?
+  taxSettingsVersion Int                     @default(0)
+  taxPolicyRevisions TaxPolicyRevision[]
+  taxPolicyApprovals TaxPolicyApproval[]
+  taxControl         OrganizationTaxControl?
+}
+
+// EN: Foundation metadata only; no payment guard or commercial activation consumes this state yet.
+// FI: Vain perustan metatiedot; maksusuojaus tai kaupallinen käyttöönotto ei vielä käytä tätä tilaa.
+model OrganizationTaxControl {
+  organizationId Int               @id
+  mode           String            @default("LEGACY")
+  generation     Int               @default(0)
+  version        Int               @default(1)
+  updatedAt      DateTime          @default(now()) @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  events         TaxControlEvent[]
+}
+
+model TaxControlEvent {
+  id                 Int                    @id @default(autoincrement())
+  organizationId     Int
+  schemaVersion      Int                    @default(1)
+  action             String
+  fromMode           String
+  toMode             String
+  fromGeneration     Int
+  toGeneration       Int
+  fromVersion        Int
+  toVersion          Int
+  reason             String
+  idempotencyKey     String
+  requestFingerprint String
+  recordedAt         DateTime               @default(now())
+  // EN: Historical actor copies have no User FK; foundation APIs never create, edit or delete events.
+  // FI: Historiallisilla tekijäkopioilla ei ole User-viitettä; perustan rajapinnat eivät luo, muokkaa tai poista tapahtumia.
+  recordedByUserId   Int
+  recordedByName     String
+  control            OrganizationTaxControl @relation(fields: [organizationId], references: [organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([organizationId, toGeneration])
+  @@index([organizationId, id])
+}
+
+model TaxPolicyRevision {
+  id                 Int                 @id @default(autoincrement())
+  organizationId     Int
+  sourceDraftVersion Int
+  schemaVersion      Int                 @default(1)
+  configuration      Json
+  sellerSnapshot     Json
+  createdAt          DateTime            @default(now())
+  // EN: Historical actor identity is a copy without a User FK; application APIs never update or delete revisions.
+  // FI: Historiallinen tekijätieto on kopio ilman User-viitettä; sovellusrajapinnat eivät päivitä tai poista versioita.
+  createdByUserId    Int
+  createdByName      String
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  approvals          TaxPolicyApproval[]
+
+  @@unique([organizationId, sourceDraftVersion])
+  @@unique([organizationId, id])
+  @@index([organizationId, id])
+}
+
+model TaxPolicyApproval {
+  id                 Int               @id @default(autoincrement())
+  organizationId     Int
+  sourceRevisionId   Int
+  sourceDraftVersion Int
+  schemaVersion      Int               @default(1)
+  configuration      Json
+  sellerSnapshot     Json
+  reviewEvidence     Json
+  idempotencyKey     String
+  requestFingerprint String
+  recordedAt         DateTime          @default(now())
+  // EN: This immutable review record does not activate tax; historical actors have no User FK.
+  // FI: Tämä muuttumaton tarkistusmerkintä ei ota verotusta käyttöön; historiallisilla tekijöillä ei ole User-viitettä.
+  recordedByUserId   Int
+  recordedByName     String
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sourceRevision     TaxPolicyRevision @relation(fields: [organizationId, sourceRevisionId], references: [organizationId, id], onDelete: Restrict, map: "TaxPolicyApproval_sourceRevision_fkey")
+
+  @@unique([organizationId, sourceRevisionId])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, id])
 }
 
 model BillSale {
   id                  Int              @id() @default(autoincrement())
   createdDate         DateTime         @default(now())
-  amount              Int
+  amount              BigInt
+  vatSnapshot         Json?
+  // EN: New payments capture receipt text atomically; null means historical identity is unknown.
+  // FI: Uudet maksut tallentavat kuittitekstit atomisesti; null tarkoittaa tuntemattomia historiallisia tietoja.
+  receiptSnapshot     Json?
   payType             String
   payDate             DateTime         @default(now())
   userId              Int
-  inputMoney          Int
-  returnMoney         Int
+  inputMoney          BigInt
+  returnMoney         BigInt
   tableNo             Int?
   serviceType         ServiceType      @default(DINE_IN)
   status              String           @default("use")
@@ -155,8 +249,9 @@ model BillSaleDetail {
   foodId       Int
   foodSizeId   Int?
   tastedId     Int?
-  moneyAdded   Int       @default(0)
-  price        Int
+  moneyAdded   BigInt    @default(0)
+  vatSnapshot  Json?
+  price        BigInt
   foodName     String
   foodSizeName String?
   tasteName    String?
@@ -287,9 +382,9 @@ model Order {
   tableNo                Int?
   serviceType            ServiceType          @default(DINE_IN)
   createdByUserId        Int?
-  subtotal               Int
-  modifierTotal          Int
-  total                  Int
+  subtotal               BigInt
+  modifierTotal          BigInt
+  total                  BigInt
   version                Int                  @default(1)
   idempotencyScope       String
   idempotencyKey         String
@@ -332,7 +427,8 @@ model OrderRefund {
   orderId           Int       @unique
   billSaleId        Int
   idempotencyKey    String    @unique
-  amount            Int
+  amount            BigInt
+  vatSnapshot       Json?
   method            String
   status            String    @default("PENDING")
   reason            String
@@ -354,10 +450,11 @@ model OrderItem {
   foodId            Int
   foodName          String
   quantity          Int
-  unitBasePrice     Int
-  unitModifierTotal Int
-  unitTotal         Int
-  lineTotal         Int
+  unitBasePrice     BigInt
+  unitModifierTotal BigInt
+  unitTotal         BigInt
+  lineTotal         BigInt
+  vatSnapshot       Json?
   note              String?
   Order             Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   Food              Food                @relation(fields: [foodId], references: [id], onDelete: Restrict)
@@ -374,7 +471,7 @@ model OrderItemModifier {
   foodSizeId      Int?
   tasteId         Int?
   name            String
-  priceAdjustment Int
+  priceAdjustment BigInt
   OrderItem       OrderItem         @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   FoodSize        FoodSize?         @relation(fields: [foodSizeId], references: [id], onDelete: SetNull)
   Taste           Taste?            @relation(fields: [tasteId], references: [id], onDelete: SetNull)
@@ -399,4 +496,12 @@ model OrderStatusHistory {
 
   @@unique([orderId, version])
   @@index([orderId, createdAt])
+}
+
+// EN: The migration owns this singleton money-unit marker; normal API writes never change it.
+// FI: Migraatio hallitsee tätä rahayksikön yksittäistä merkintää; tavalliset API-kirjoitukset eivät muuta sitä.
+model MoneyStorage {
+  id      Int    @id
+  unit    String
+  version Int
 }

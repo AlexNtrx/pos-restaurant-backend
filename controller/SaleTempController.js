@@ -1,3 +1,4 @@
+const { sendMoney } = require("../lib/money-dto");
 const reads = require("../lib/legacy-receipt-service");
 const { ReceiptReadError } = require("../lib/receipt-read-error");
 const prisma = require("../lib/prisma");
@@ -22,7 +23,8 @@ module.exports = {
   // Creates  with the current contract.
   create: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.create({
           user: req.user,
           body: req.body,
@@ -39,7 +41,8 @@ module.exports = {
   // Coordinates list behavior for this module.
   list: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.list({
           user: req.user,
           body: req.body,
@@ -56,7 +59,8 @@ module.exports = {
   // Removes or clears  using the existing workflow.
   remove: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.remove({
           user: req.user,
           body: req.body,
@@ -73,7 +77,8 @@ module.exports = {
   // Removes or clears all using the existing workflow.
   removeAll: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.removeAll({
           user: req.user,
           body: req.body,
@@ -90,7 +95,8 @@ module.exports = {
   // Updates qty without changing user-visible behavior.
   updateQty: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.updateQty({
           user: req.user,
           body: req.body,
@@ -107,7 +113,8 @@ module.exports = {
   // Coordinates generate sale temp detail behavior for this module.
   generateSaleTempDetail: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.generateSaleTempDetail({
           user: req.user,
           body: req.body,
@@ -124,7 +131,8 @@ module.exports = {
   // Coordinates info behavior for this module.
   info: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.info({
           user: req.user,
           body: req.body,
@@ -141,7 +149,8 @@ module.exports = {
   // Updates taste without changing user-visible behavior.
   selectTaste: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.selectTaste({
           user: req.user,
           body: req.body,
@@ -158,7 +167,8 @@ module.exports = {
   // Coordinates un select taste behavior for this module.
   unSelectTaste: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.unSelectTaste({
           user: req.user,
           body: req.body,
@@ -175,7 +185,8 @@ module.exports = {
   // Updates size without changing user-visible behavior.
   selectSize: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.selectSize({
           user: req.user,
           body: req.body,
@@ -192,7 +203,8 @@ module.exports = {
   // Creates sale temp detail with the current contract.
   createSaleTempDetail: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.createSaleTempDetail({
           user: req.user,
           body: req.body,
@@ -209,7 +221,8 @@ module.exports = {
   // Removes or clears sale temp detail modal using the existing workflow.
   removeSaleTempDetailModal: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCart.removeSaleTempDetailModal({
           user: req.user,
           body: req.body,
@@ -268,7 +281,8 @@ module.exports = {
   // Coordinates end sale behavior for this module.
   endSale: async (req, res) => {
     try {
-      return res.send(
+      return sendMoney(
+        res,
         await legacyCheckout.endSale({
           user: req.user,
           body: req.body,
@@ -308,7 +322,7 @@ module.exports = {
       if (existing) {
         if (existing.channel !== "COUNTER" || existing.tableNo !== tableNo)
           return res.status(409).send({ error: "Idempotency key conflict" });
-        return res.send({
+        return sendMoney(res, {
           orderId: existing.id,
           status: existing.status,
           total: existing.total,
@@ -354,7 +368,7 @@ module.exports = {
           },
         },
       });
-      return res.send({ results: orders });
+      return sendMoney(res, { results: orders });
     } catch (error) {
       return sendUnexpectedError(res, error);
     }

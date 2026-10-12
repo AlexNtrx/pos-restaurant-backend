@@ -1,5 +1,5 @@
-// EN: Run from next-pos-api: node test/performance-benchmark.js --image=<food-photo> [--browser --playwright=<module-path>].
-// FI: Suorita next-pos-api-kansiosta: node test/performance-benchmark.js --image=<ruokakuva> [--browser --playwright=<moduulipolku>].
+// EN: Run from next-pos-api: node test/performance-benchmark.js --image=<food-photo> [--vat-demo] [--browser --playwright=<module-path>].
+// FI: Suorita next-pos-api-kansiosta: node test/performance-benchmark.js --image=<ruokakuva> [--vat-demo] [--browser --playwright=<moduulipolku>].
 require("./bootstrap");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -10,6 +10,15 @@ const { once } = require("node:events");
 const { spawn } = require("node:child_process");
 const { performance, monitorEventLoopDelay } = require("node:perf_hooks");
 const os = require("node:os");
+const { eurosToCents, centsToEuros } = require("../lib/money");
+const {
+  RESTAURANT_TIME_ZONE,
+  restaurantMonthBounds,
+} = require("../lib/restaurant-calendar");
+const {
+  restaurantMonth,
+  expectedReportCents,
+} = require("./benchmark-financials");
 const { assertTarget, Metrics, closedLoop } = require("./benchmark-core");
 assert.ok(process.env.TEST_DATABASE_URL, "Explicit TEST_DATABASE_URL required");
 const target = assertTarget(process.env.DATABASE_URL);
@@ -49,9 +58,18 @@ for (const key of args.keys())
       "concurrency",
       "soak",
       "gc-diagnostics",
+      "vat-demo",
     ].includes(key),
     "Unknown benchmark option",
   );
+// EN: Never inherit a development tax flag; each benchmark explicitly selects the demo profile.
+// FI: Älä peri kehitysympäristön verovalintaa; jokainen kuormitustesti valitsee demokäytännön nimenomaisesti.
+assert.ok(
+  !args.has("vat-demo") || args.get("vat-demo") === true,
+  "Use --vat-demo without a value",
+);
+const vatDemo = args.has("vat-demo");
+process.env.VAT_DEMO_ENABLED = String(vatDemo);
 const soak = args.has("soak");
 const output = path.join(
   root,
@@ -108,6 +126,11 @@ const report = {
     database: target.pathname.slice(1),
     poolLimitPerClient:
       target.searchParams.get("connection_limit") ?? "default",
+    storageMoneyUnit: "BIGINT_CENTS",
+    apiMoneyUnit: "EUR",
+    restaurantTimeZone: RESTAURANT_TIME_ZONE,
+    cutoff: "00:00",
+    vatDemo,
     cloudAcceptance: "pending",
     slo: "not defined from local measurements",
   },
@@ -273,13 +296,18 @@ async function setup() {
   };
   await prisma.food.update({
     where: { id: fixture.food.id },
-    data: { img: pairs[0][0], detailImg: pairs[0][1] },
+    data: {
+      img: pairs[0][0],
+      detailImg: pairs[0][1],
+      taxCategory: "FOOD_NON_ALCOHOLIC",
+    },
   });
   await prisma.food.createMany({
     data: Array.from({ length: 999 }, (_, i) => ({
       name: `Benchmark menu ${String(i).padStart(4, "0")}`,
       remark: "Synthetic menu / Testiruoka",
-      price: 20,
+      taxCategory: "FOOD_NON_ALCOHOLIC",
+      price: 2000n,
       img: pairs[(i + 1) % 12][0],
       detailImg: pairs[(i + 1) % 12][1],
       foodTypeId: fixture.category.id,
@@ -295,9 +323,9 @@ async function setup() {
       tableNo: queue.table.tableNo,
       tableSessionId: queue.session.id,
       createdByUserId: fixture.admin.id,
-      subtotal: 40,
-      modifierTotal: 0,
-      total: 40,
+      subtotal: 4000n,
+      modifierTotal: 0n,
+      total: 4000n,
       idempotencyScope: fixture.marker,
       idempotencyKey: `${fixture.marker}-${i}`,
       idempotencyFingerprint: "0".repeat(64),
@@ -313,22 +341,29 @@ async function setup() {
       foodId: fixture.food.id,
       foodName: fixture.food.name,
       quantity: 2,
-      unitBasePrice: 20,
-      unitModifierTotal: 0,
-      unitTotal: 20,
-      lineTotal: 40,
+      unitBasePrice: 2000n,
+      unitModifierTotal: 0n,
+      unitTotal: 2000n,
+      lineTotal: 4000n,
     })),
   });
   for (let batch = 0; batch < 10; batch++)
     await prisma.billSale.createMany({
       data: Array.from({ length: 1000 }, (_, i) => ({
-        amount: 20,
+        amount: 2000n,
         serviceType: "TAKEAWAY",
         payType: "cash",
         userId: fixture.admin.id,
-        inputMoney: 20,
-        returnMoney: 0,
-        payDate: new Date(Date.UTC(2026, 9, 1 + (i % 28), 12)),
+        inputMoney: 2000n,
+        returnMoney: 0n,
+        // EN: Include Helsinki month boundaries while preserving unknown historical VAT snapshots.
+        // FI: Sisällytä Helsingin kuukausirajat ja säilytä tuntemattomat historialliset ALV-tallenteet.
+        payDate:
+          batch === 0 && i === 0
+            ? new Date("2026-09-30T21:30:00Z")
+            : batch === 0 && i === 1
+              ? new Date("2026-10-31T22:00:00Z")
+              : new Date(Date.UTC(2026, 9, 1 + (i % 28), 12)),
         idempotencyKey: `${fixture.marker}-bill-${batch}-${i}`,
       })),
     });
@@ -342,7 +377,7 @@ async function setup() {
         billSaleId: bill.id,
         foodId: fixture.food.id,
         foodName: fixture.food.name,
-        price: 20,
+        price: 2000n,
       })),
     });
   for (const table of [
@@ -480,7 +515,7 @@ async function tableWorkflow(qr) {
   const id = created.orderId ?? created.id;
   assert.equal(id, repeated.orderId ?? repeated.id);
   let order = (await call("order-detail", `/orders/${id}`)).data.result;
-  if (qr)
+  if (qr && order.status === "SUBMITTED")
     order = (
       await call(
         "order-confirm",
@@ -689,36 +724,107 @@ async function reconcile() {
       where: { id: row.billId },
       include: { BillSaleDetails: true, Orders: true },
     });
-    assert.equal(bill.amount, row.amount);
-    assert.equal(bill.returnMoney, 10);
-    assert.equal(bill.inputMoney, 50);
+    assert.equal(bill.amount, eurosToCents(row.amount));
+    assert.equal(bill.returnMoney, 1000n);
+    assert.equal(bill.inputMoney, 5000n);
     assert.equal(bill.Orders.length, 1);
+    assert.equal(bill.status, "use");
+    const billRefunds = refunds.filter((entry) => entry.billSaleId === bill.id);
+    assert.equal(billRefunds.length, row.refunded ? 1 : 0);
+    assert.ok(billRefunds.every((entry) => entry.status === "COMPLETED"));
+    assert.equal(
+      billRefunds.reduce((sum, entry) => sum + entry.amount, 0n),
+      eurosToCents(row.refunded),
+    );
+    if (vatDemo) {
+      assert.equal(bill.vatSnapshot.grossCents, bill.amount.toString());
+      assert.equal(
+        BigInt(bill.vatSnapshot.netCents) + BigInt(bill.vatSnapshot.taxCents),
+        bill.amount,
+      );
+      assert.equal(
+        bill.BillSaleDetails.reduce(
+          (sum, item) => sum + BigInt(item.vatSnapshot.taxCents),
+          0n,
+        ),
+        BigInt(bill.vatSnapshot.taxCents),
+      );
+      for (const line of bill.BillSaleDetails) {
+        assert.equal(
+          BigInt(line.vatSnapshot.grossCents),
+          line.price + line.moneyAdded,
+        );
+        assert.equal(
+          BigInt(line.vatSnapshot.netCents) + BigInt(line.vatSnapshot.taxCents),
+          line.price + line.moneyAdded,
+        );
+      }
+      for (const refund of billRefunds) {
+        assert.equal(refund.amount, bill.amount);
+        assert.equal(
+          BigInt(refund.vatSnapshot.taxCents),
+          -BigInt(bill.vatSnapshot.taxCents),
+        );
+        assert.equal(BigInt(refund.vatSnapshot.grossCents), -bill.amount);
+      }
+    } else assert.equal(bill.vatSnapshot, null);
     assert.equal(
       bill.BillSaleDetails.reduce(
         (sum, item) => sum + item.price + item.moneyAdded,
-        0,
+        0n,
       ),
-      row.amount,
+      eurosToCents(row.amount),
     );
   }
-  const now = new Date();
-  const expected =
-    ledger.reduce((sum, row) => sum + row.amount - row.refunded, 0) +
-    (now.getUTCFullYear() === 2026 && now.getUTCMonth() === 9 ? 200000 : 0);
-  const daily = (
-    await call("reconcile-report", "/report/dailySales", {
-      year: now.getUTCFullYear(),
-      month: now.getUTCMonth() + 1,
-    })
-  ).data;
-  assert.equal(daily.totalAmount, expected);
+  const volumeBills = await prisma.billSale.findMany({
+    where: { userId: fixture.admin.id },
+  });
+  assert.equal(volumeBills.length, 10000);
+  assert.equal(
+    volumeBills.reduce((sum, bill) => sum + bill.amount, 0n),
+    20000000n,
+  );
+  assert.ok(volumeBills.every((bill) => bill.vatSnapshot === null));
+  const allBills = await prisma.billSale.findMany({
+    select: { id: true, payDate: true, amount: true, status: true },
+  });
+  const currentPeriod = restaurantMonth(new Date());
+  const periods = new Map(
+    allBills.map((bill) => {
+      const period = restaurantMonth(bill.payDate);
+      return [period.year + "-" + period.month, period];
+    }),
+  );
+  periods.set(currentPeriod.year + "-" + currentPeriod.month, currentPeriod);
+  const reconciledPeriods = [];
+  for (const { year, month } of periods.values()) {
+    const expectedCents = expectedReportCents(allBills, refunds, year, month);
+    const daily = (
+      await call("reconcile-report", "/report/dailySales", { year, month })
+    ).data;
+    assert.equal(eurosToCents(daily.totalAmount), expectedCents);
+    const monthly = (
+      await call("reconcile-monthly-report", "/report/sumMonthly", { year })
+    ).data;
+    assert.equal(
+      eurosToCents(monthly.results[month - 1].amount),
+      expectedCents,
+    );
+    reconciledPeriods.push({
+      year,
+      month,
+      expectedTotal: centsToEuros(expectedCents),
+      actualTotal: daily.totalAmount,
+    });
+  }
   report.correctness = {
     uniquePaidIntents: ledger.length,
     bills: actualBills,
     orders: actualOrders,
     completedRefunds: refunds.length,
-    expectedReportTotal: expected,
-    actualReportTotal: daily.totalAmount,
+    reconciledPeriods,
+    historicalVatUnknownBills: volumeBills.length,
+    liveVatBills: vatDemo ? ledger.length : 0,
     lostResponseReplayed: probeCommitted,
     duplicateOrLostIntents: 0,
   };
@@ -810,6 +916,7 @@ async function main() {
     await runBrowser(queue);
   }
   phase = "mixed-load";
+  const historyBounds = restaurantMonthBounds(2026, 10);
   const reads = [
     () => call("catalog", "/food/filter/all", undefined, fixture.user),
     () => call("tables", "/tables", undefined, waiter),
@@ -825,7 +932,7 @@ async function main() {
     () =>
       call(
         "order-history-page",
-        "/orders?submittedFrom=2026-10-01T00:00:00.000Z&submittedBefore=2026-11-01T00:00:00.000Z&limit=50",
+        `/orders?submittedFrom=${historyBounds.start.toISOString()}&submittedBefore=${historyBounds.endExclusive.toISOString()}&limit=50`,
         undefined,
         fixture.user,
       ),

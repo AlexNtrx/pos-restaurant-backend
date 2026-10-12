@@ -1,3 +1,4 @@
+const { sendMoney } = require("../lib/money-dto");
 const prisma = require("../lib/prisma");
 const { OrderDomainError } = require("../lib/order-domain");
 const qr = require("../lib/qr-public-service");
@@ -19,18 +20,20 @@ const handle = (operation) => async (req, res) => {
 
 module.exports = {
   context: handle(async (req, res) =>
-    res.send({ result: await qr.publicContext(prisma, req.params.token) }),
+    sendMoney(res, {
+      result: await qr.publicContext(prisma, req.params.token),
+    }),
   ),
   menu: handle(async (req, res) =>
-    res.send({ result: await qr.publicMenu(prisma, req.params.token) }),
+    sendMoney(res, { result: await qr.publicMenu(prisma, req.params.token) }),
   ),
   submit: handle(async (req, res) =>
-    res.status(201).send({
+    sendMoney(res.status(201), {
       result: await qr.publicSubmit(prisma, req.params.token, req.body),
     }),
   ),
   order: handle(async (req, res) =>
-    res.send({
+    sendMoney(res, {
       result: await qr.publicOrder(
         prisma,
         req.params.token,

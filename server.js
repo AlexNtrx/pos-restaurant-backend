@@ -8,9 +8,19 @@ if (require.main === module || process.env.NODE_ENV === "production") {
   validateRuntimeEnvironment();
 }
 const prisma = require("./lib/prisma");
+const { assertMoneyStorage } = require("./lib/money-storage");
 const bodyParser = require("body-parser");
 const express = require("express");
 const app = express();
+let moneyStorageReady;
+const moneyReady = () => {
+  if (!moneyStorageReady)
+    moneyStorageReady = assertMoneyStorage(prisma).catch((error) => {
+      moneyStorageReady = undefined;
+      throw error;
+    });
+  return moneyStorageReady;
+};
 const cors = require("cors");
 
 app.use(bodyParser.json());
@@ -37,9 +47,20 @@ app.use(
 app.get("/health", async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
+    await moneyReady();
     res.status(200).send({ status: "ok" });
   } catch {
     res.status(503).send({ status: "unavailable" });
+  }
+});
+// EN: Guard every API entry, including servers embedded by tests, before any cents reads or writes.
+// FI: Tarkista jokainen API-kutsu, myös testien käynnistämä palvelin, ennen senttiarvojen lukemista tai kirjoittamista.
+app.use("/api", async (_req, res, next) => {
+  try {
+    await moneyReady();
+    next();
+  } catch {
+    res.status(503).send({ error: "Money storage is not ready" });
   }
 });
 app.use("/uploads", (req, res, next) => {
@@ -95,6 +116,7 @@ require("./routes/users")(app);
 // FI: Yhdistä ennen liikenteen vastaanottamista ja päätä HTTP-pyynnöt ennen yhteisen poolin sulkemista.
 const startServer = async (port = getPort()) => {
   await prisma.$connect();
+  await moneyReady();
   const server = app.listen(port, "0.0.0.0");
   await new Promise((resolve, reject) => {
     server.once("listening", resolve);
@@ -133,7 +155,7 @@ if (require.main === module) {
     })
     .catch(async () => {
       console.error(
-        "API startup failed: check database connectivity and PORT configuration.",
+        "API startup failed: check database connectivity, cents migration and PORT configuration.",
       );
       await prisma.$disconnect();
       process.exitCode = 1;

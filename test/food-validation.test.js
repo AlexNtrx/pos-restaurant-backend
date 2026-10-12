@@ -16,7 +16,7 @@ test("food validation preserves coercion, normalization, and optional detail ima
     foodTypeId: 7,
     name: "Soup",
     remark: "Fresh",
-    price: 125,
+    price: 12500n,
     foodType: "food",
     img: "soup.png",
   });

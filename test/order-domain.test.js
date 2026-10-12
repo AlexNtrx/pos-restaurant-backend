@@ -1,3 +1,4 @@
+const { eurosToCents, centsToEuros } = require("../lib/money");
 const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
@@ -9,7 +10,12 @@ const {
   transitionOrder,
 } = require("../lib/order-service");
 const { rotateToken, resolveQrAccess } = require("../lib/table-service");
-const { cleanupTestFixture, createTestFixture } = require("./helpers");
+const {
+  cleanupTestFixture,
+  createTestFixture,
+  beginOrganizationFixture,
+  restoreOrganizationFixture,
+} = require("./helpers");
 
 const prisma = new PrismaClient();
 const createdTableIds = [];
@@ -77,11 +83,14 @@ const expectDomainError = async (promise, { status, code }) => {
   });
 };
 
+let organizationFixture;
 before(async () => {
   fixture = await createTestFixture();
+  organizationFixture = await beginOrganizationFixture();
 });
 
 after(async () => {
+  await restoreOrganizationFixture(organizationFixture);
   await cleanupTestFixture(fixture);
   await prisma.tableSession.deleteMany({
     where: { restaurantTableId: { in: createdTableIds } },
@@ -94,12 +103,12 @@ after(async () => {
 
 test("backend builds authoritative immutable food, size, taste, and price snapshots", async () => {
   const order = await submitCounter();
-  assert.equal(order.subtotal, 40);
-  assert.equal(order.modifierTotal, 10);
-  assert.equal(order.total, 50);
+  assert.equal(order.subtotal, 4000n);
+  assert.equal(order.modifierTotal, 1000n);
+  assert.equal(order.total, 5000n);
   assert.equal(order.Items[0].foodName, fixture.food.name);
-  assert.equal(order.Items[0].unitBasePrice, 20);
-  assert.equal(order.Items[0].unitModifierTotal, 5);
+  assert.equal(order.Items[0].unitBasePrice, 2000n);
+  assert.equal(order.Items[0].unitModifierTotal, 500n);
   assert.deepEqual(
     order.Items[0].Modifiers.map((modifier) => modifier.type).sort(),
     ["SIZE", "TASTE"],
@@ -132,19 +141,22 @@ test("backend builds authoritative immutable food, size, taste, and price snapsh
   try {
     await prisma.food.update({
       where: { id: fixture.food.id },
-      data: { name: `${fixture.food.name}-changed`, price: 999 },
+      data: { name: `${fixture.food.name}-changed`, price: 99900n },
     });
     await prisma.foodSize.update({
       where: { id: fixture.size.id },
-      data: { name: `${fixture.size.name}-changed`, moneyAdded: 777 },
+      data: { name: `${fixture.size.name}-changed`, moneyAdded: 77700n },
     });
     const persisted = await prisma.order.findUnique({
       where: { id: order.id },
       include: { Items: { include: { Modifiers: true } } },
     });
-    assert.equal(persisted.total, 50);
+    assert.equal(persisted.total, 5000n);
     assert.equal(persisted.Items[0].foodName, original.foodName);
-    assert.equal(persisted.Items[0].unitBasePrice, original.foodPrice);
+    assert.equal(
+      persisted.Items[0].unitBasePrice,
+      eurosToCents(original.foodPrice),
+    );
     assert.equal(
       persisted.Items[0].Modifiers.find((modifier) => modifier.type === "SIZE")
         .name,
@@ -153,11 +165,17 @@ test("backend builds authoritative immutable food, size, taste, and price snapsh
   } finally {
     await prisma.food.update({
       where: { id: fixture.food.id },
-      data: { name: original.foodName, price: original.foodPrice },
+      data: {
+        name: original.foodName,
+        price: eurosToCents(original.foodPrice),
+      },
     });
     await prisma.foodSize.update({
       where: { id: fixture.size.id },
-      data: { name: original.sizeName, moneyAdded: original.sizePrice },
+      data: {
+        name: original.sizeName,
+        moneyAdded: eurosToCents(original.sizePrice),
+      },
     });
   }
 });
@@ -323,7 +341,7 @@ test("failed settlement leaves no BillSale and no PAID state", async () => {
       idempotencyKey,
       orders: [{ id: served.id, version: served.version }],
       payType: "cash",
-      inputMoney: served.total - 1,
+      inputMoney: centsToEuros(served.total) - 1,
     }),
     { status: 409, code: "INSUFFICIENT_CASH" },
   );
@@ -346,7 +364,7 @@ test("settlement atomically records PAID and COMPLETED and supports exact replay
     idempotencyKey,
     orders: [{ id: served.id, version: served.version }],
     payType: "cash",
-    inputMoney: served.total + 20,
+    inputMoney: centsToEuros(served.total) + 20,
   };
   const [first, replay] = await Promise.all([
     settleOrders(prisma, request),
@@ -354,7 +372,7 @@ test("settlement atomically records PAID and COMPLETED and supports exact replay
   ]);
   assert.equal(replay.id, first.id);
   assert.equal(first.amount, served.total);
-  assert.equal(first.returnMoney, 20);
+  assert.equal(first.returnMoney, 2000n);
   const completed = await prisma.order.findUnique({
     where: { id: served.id },
     include: { StatusHistory: { orderBy: { version: "asc" } } },
@@ -384,7 +402,10 @@ test("settlement atomically records PAID and COMPLETED and supports exact replay
     { status: 409, code: "ORDER_NOT_CANCELLABLE" },
   );
   await expectDomainError(
-    settleOrders(prisma, { ...request, inputMoney: served.total + 21 }),
+    settleOrders(prisma, {
+      ...request,
+      inputMoney: centsToEuros(served.total) + 21,
+    }),
     { status: 409, code: "IDEMPOTENCY_CONFLICT" },
   );
 });

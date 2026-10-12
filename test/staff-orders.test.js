@@ -71,7 +71,7 @@ after(async () => {
   await cleanupTestFixture(fixture);
 });
 
-test("staff inbox lists public QR and Counter snapshots with validated filters and pagination", async () => {
+test("staff lists confirmed public QR and submitted Counter snapshots with validated filters and pagination", async () => {
   const anonymous = await request("/orders", "GET", undefined, null);
   assert.equal(anonymous.status, 401);
   const updatedAfter = new Date(Date.now() - 1_000).toISOString();
@@ -97,7 +97,7 @@ test("staff inbox lists public QR and Counter snapshots with validated filters a
   const qrId = (await qrResponse.json()).result.orderId;
 
   const first = await request(
-    `/orders?status=SUBMITTED&sort=submitted_desc&limit=1&updatedAfter=${encodeURIComponent(updatedAfter)}`,
+    `/orders?sort=submitted_desc&limit=1&updatedAfter=${encodeURIComponent(updatedAfter)}`,
   );
   assert.equal(first.status, 200);
   assert.equal(first.headers.get("cache-control"), "no-store");
@@ -105,7 +105,7 @@ test("staff inbox lists public QR and Counter snapshots with validated filters a
   assert.equal(firstPage.results.length, 1);
   assert.ok(firstPage.nextCursor);
   const second = await request(
-    `/orders?status=SUBMITTED&sort=submitted_desc&limit=1&updatedAfter=${encodeURIComponent(updatedAfter)}&cursor=${firstPage.nextCursor}`,
+    `/orders?sort=submitted_desc&limit=1&updatedAfter=${encodeURIComponent(updatedAfter)}&cursor=${firstPage.nextCursor}`,
   );
   assert.equal(second.status, 200);
   const secondPage = await second.json();
@@ -113,18 +113,23 @@ test("staff inbox lists public QR and Counter snapshots with validated filters a
   assert.equal(firstPage.results[0].id, qrId);
   assert.equal(secondPage.results[0].id, counter.id);
   const onlyQr = await request(
-    `/orders?status=SUBMITTED&channel=QR&tableSessionId=${qrAccess.session.id}`,
+    `/orders?status=CONFIRMED&channel=QR&tableSessionId=${qrAccess.session.id}`,
   );
   const qrList = (await onlyQr.json()).results;
   assert.equal(qrList.length, 1);
   assert.equal(qrList[0].id, qrId);
+  assert.equal(qrList[0].status, "CONFIRMED");
+  const inbox = await request(
+    `/orders?status=SUBMITTED&channel=QR&tableSessionId=${qrAccess.session.id}`,
+  );
+  assert.deepEqual((await inbox.json()).results, []);
   assert.equal(qrList[0].items[0].note, "Ei chiliä");
   assert.equal(qrList[0].items[0].modifiers.length, 2);
   const detail = await request(`/orders/${qrId}`);
   assert.equal(detail.status, 200);
   assert.deepEqual(
     (await detail.json()).result.history.map((event) => event.toStatus),
-    ["SUBMITTED"],
+    ["SUBMITTED", "CONFIRMED"],
   );
   const changes = await request(
     `/orders?updatedAfter=${encodeURIComponent(new Date(Date.now() - 60_000).toISOString())}&channel=QR`,

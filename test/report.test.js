@@ -4,7 +4,9 @@ const { once } = require("node:events");
 const jwt = require("jsonwebtoken");
 const { randomUUID } = require("node:crypto");
 const { PrismaClient } = require("@prisma/client");
+const { restaurantMonthBounds } = require("../lib/restaurant-calendar");
 const { readSalesBuckets } = require("../lib/sales-report");
+const { eurosToCents } = require("../lib/money");
 const { createTestFixture, cleanupTestFixture } = require("./helpers");
 
 const prisma = new PrismaClient();
@@ -25,21 +27,21 @@ const headersFor = (user) => ({
 const createBill = async (amount, payDate, status = "use") => {
   const bill = await prisma.billSale.create({
     data: {
-      amount,
+      amount: eurosToCents(amount),
       payType: "cash",
       payDate,
-      createdDate: new Date("2025-01-01T00:00:00.000Z"),
+      createdDate: new Date("2024-12-31T22:00:00.000Z"),
       userId: admin.id,
-      inputMoney: amount,
-      returnMoney: 0,
+      inputMoney: eurosToCents(amount),
+      returnMoney: 0n,
       tableNo: 98,
       status,
       BillSaleDetails: {
         create: [
           {
             foodId: food.id,
-            price: 1,
-            moneyAdded: 0,
+            price: 100n,
+            moneyAdded: 0n,
             foodName: `Report ${amount}`,
             foodSizeName: null,
             tasteName: null,
@@ -112,7 +114,7 @@ const createRefund = async (bill, amount, status) => {
       orderId: order.id,
       billSaleId: bill.id,
       idempotencyKey: randomUUID(),
-      amount,
+      amount: eurosToCents(amount),
       status,
       method: "bank",
       reason: "Report fixture return",
@@ -145,10 +147,10 @@ test("daily sales is admin-only and validates calendar input", async () => {
   assert.equal(invalidResponse.status, 400);
 });
 
-test("daily sales uses UTC payDate, bill totals, exclusive boundaries, and active bills only", async () => {
-  await createBill(101, new Date("2026-02-01T00:00:00.000Z"));
-  await createBill(202, new Date("2026-02-28T23:59:59.999Z"));
-  await createBill(303, new Date("2026-03-01T00:00:00.000Z"));
+test("daily sales uses Helsinki payDate, bill totals, exclusive boundaries, and active bills only", async () => {
+  await createBill(101, new Date("2026-01-31T22:00:00.000Z"));
+  await createBill(202, new Date("2026-02-28T21:59:59.999Z"));
+  await createBill(303, new Date("2026-02-28T22:00:00.000Z"));
   await createBill(404, new Date("2026-02-14T12:00:00.000Z"), "cancelled");
   const response = await fetch(`${apiBaseUrl}/report/dailySales`, {
     method: "POST",
@@ -170,9 +172,9 @@ test("daily sales uses UTC payDate, bill totals, exclusive boundaries, and activ
   assert.equal(body.totalAmount, 303);
 });
 
-test("monthly sales is admin-only, validates year, and aggregates active final totals by UTC month", async () => {
-  await createBill(111, new Date("2024-01-01T00:00:00.000Z"));
-  await createBill(222, new Date("2024-12-31T23:59:59.999Z"));
+test("monthly sales is admin-only, validates year, and aggregates active final totals by Helsinki month", async () => {
+  await createBill(111, new Date("2023-12-31T22:00:00.000Z"));
+  await createBill(222, new Date("2024-12-31T21:59:59.999Z"));
   await createBill(333, new Date("2025-01-01T00:00:00.000Z"));
   await createBill(444, new Date("2024-06-15T12:00:00.000Z"), "cancelled");
   const [userResponse, invalidResponse, reportResponse] = await Promise.all([
@@ -222,7 +224,7 @@ test("empty periods return zero-filled leap and century calendars and all twelve
 
 test("database sums retain integer units above the 32-bit range", async () => {
   for (let index = 0; index < 2; index++)
-    await createBill(2_147_483_647, new Date("2028-02-29T23:59:59.999Z"));
+    await createBill(2_147_483_647, new Date("2028-02-29T21:59:59.999Z"));
   await createBill(17, new Date("2028-03-01T00:00:00.000Z"));
   const daily = await readReport("dailySales", { year: 2028, month: 2 });
   assert.equal(daily.results[28].amount, 4_294_967_294);
@@ -234,7 +236,7 @@ test("database sums retain integer units above the 32-bit range", async () => {
 });
 
 test("only completed refunds restate the original period without multiplying bill totals or changing snapshots", async () => {
-  const bill = await createBill(100, new Date("2032-02-29T23:59:59.999Z"));
+  const bill = await createBill(100, new Date("2032-02-29T21:59:59.999Z"));
   for (const [amount, status] of [
     [10, "COMPLETED"],
     [20, "COMPLETED"],
@@ -268,18 +270,17 @@ test("only completed refunds restate the original period without multiplying bil
   );
 });
 
-test("UTC buckets and boundaries are independent of the database session timezone", async () => {
-  await createBill(21, new Date("2036-02-29T23:59:59.999Z"));
+test("Helsinki buckets and UTC bounds are independent of the database session timezone", async () => {
+  await createBill(21, new Date("2036-02-29T21:59:59.999Z"));
   await createBill(7, new Date("2036-03-01T00:00:00Z"));
   const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SET LOCAL TIME ZONE 'Pacific/Auckland'`;
     return readSalesBuckets(tx, {
-      start: new Date("2036-02-01T00:00:00Z"),
-      endExclusive: new Date("2036-03-01T00:00:00Z"),
+      ...restaurantMonthBounds(2036, 2),
       bucket: "day",
     });
   });
-  assert.deepEqual(result, [{ bucket: 29, amount: 21 }]);
+  assert.deepEqual(result, [{ bucket: 29, amount: 2100n }]);
 });
 
 test("reports still reject missing credentials and a revoked current admin role", async () => {
@@ -303,4 +304,59 @@ test("reports still reject missing credentials and a revoked current admin role"
       data: { level: "admin" },
     });
   }
+});
+
+test("Helsinki midnight, summer/winter DST, cross-month refunds and cancellations reconcile with monthly totals", async () => {
+  const year = 2027;
+  const bills = [];
+  for (const [amount, at] of [
+    [1, "2026-12-31T22:30:00Z"], // Jan 1, 00:30
+    [2, "2027-03-27T22:00:00Z"], // DST day start
+    [4, "2027-03-28T20:59:59.999Z"], // DST day end (23 hours)
+    [8, "2027-03-28T21:00:00Z"], // next day
+    [16, "2027-04-30T21:30:00Z"], // May 1, 00:30
+    [32, "2027-10-30T21:00:00Z"], // DST day start
+    [64, "2027-10-31T00:30:00Z"], // first local 03:30
+    [128, "2027-10-31T01:30:00Z"], // repeated local 03:30
+    [256, "2027-10-31T21:59:59.999Z"], // DST day end (25 hours)
+    [512, "2027-10-31T22:00:00Z"], // Nov 1 midnight
+    [1024, "2027-12-31T21:59:59.999Z"],
+  ])
+    bills.push(await createBill(amount, new Date(at)));
+  await createBill(2048, new Date("2027-12-31T22:00:00Z")); // excluded from 2027
+  const refund = await createRefund(bills[4], 3, "COMPLETED");
+  await prisma.orderRefund.update({
+    where: { id: refund.id },
+    data: { completedAt: new Date("2027-11-01T12:00:00Z") },
+  });
+  await prisma.order.update({
+    where: { id: refund.orderId },
+    data: {
+      cancelledAt: new Date("2027-10-31T22:30:00Z"),
+      paidAt: bills[4].payDate,
+    },
+  });
+  const monthly = await readReport("sumMonthly", { year });
+  const daily = [];
+  for (let month = 1; month <= 12; month++) {
+    const result = await readReport("dailySales", { year, month });
+    assert.equal(result.totalAmount, monthly.results[month - 1].amount);
+    assert.equal(
+      result.results.reduce((sum, row) => sum + row.amount, 0),
+      result.totalAmount,
+    );
+    daily.push(result);
+  }
+  assert.equal(daily[0].results[0].amount, 1);
+  assert.equal(daily[2].results[27].amount, 6);
+  assert.equal(daily[2].results[28].amount, 8);
+  assert.equal(daily[3].totalAmount, 0);
+  assert.equal(daily[4].results[0].amount, 13);
+  assert.equal(daily[4].summary.refundedAmount, 3);
+  assert.equal(daily[9].results[30].amount, 480);
+  assert.equal(daily[10].results[0].amount, 512);
+  assert.equal(daily[10].summary.refundedAmount, 0);
+  assert.equal(daily[10].results[0].breakdown.paidCancelledCount, 1);
+  assert.equal(daily[10].results[0].breakdown.paidCancelledAmount, 16);
+  assert.equal(monthly.totalAmount, 2044);
 });

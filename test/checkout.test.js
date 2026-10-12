@@ -1,3 +1,5 @@
+const { eurosToCents } = require("../lib/money");
+const { moneyDto } = require("../lib/money-dto");
 const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
@@ -122,7 +124,7 @@ const kitchenOrder = async (tableNo) => {
       items: [{ foodId: food.id, quantity: 1 }],
     },
     confirmForKitchen: true,
-  });
+  }).then(moneyDto);
 };
 
 const advanceOrder = (order, nextStatus) =>
@@ -131,7 +133,7 @@ const advanceOrder = (order, nextStatus) =>
     orderId: order.id,
     expectedVersion: order.version,
     nextStatus,
-  });
+  }).then(moneyDto);
 
 const servedOrder = async (tableNo) => {
   let order = await kitchenOrder(tableNo);
@@ -172,7 +174,7 @@ test("Counter payment and receipt work before service while Kitchen can finish t
   };
   await prisma.food.update({
     where: { id: food.id },
-    data: { price: food.price + 100, name: food.name + "-new" },
+    data: { price: eurosToCents(food.price + 100), name: food.name + "-new" },
   });
   try {
     const { response, payload } = await settleCounter(
@@ -188,7 +190,7 @@ test("Counter payment and receipt work before service while Kitchen can finish t
       include: { BillSaleDetails: true },
     });
     assert.equal(bill.userId, owner.id);
-    assert.equal(bill.BillSaleDetails[0].price, food.price);
+    assert.equal(bill.BillSaleDetails[0].price, eurosToCents(food.price));
     assert.equal(bill.BillSaleDetails[0].foodName, food.name);
     const paid = await prisma.order.findUnique({
       where: { id: order.id },
@@ -312,7 +314,7 @@ test("Counter payment and receipt work before service while Kitchen can finish t
   } finally {
     await prisma.food.update({
       where: { id: food.id },
-      data: { price: food.price, name: food.name },
+      data: { price: eurosToCents(food.price), name: food.name },
     });
   }
 });
@@ -548,12 +550,15 @@ test("checkout ignores forged authority and finalizes only the authenticated sel
   });
   assert.equal(bill.userId, owner.id);
   assert.equal(bill.tableNo, testTables[1]);
-  assert.equal(bill.amount, expectedAmount);
+  assert.equal(bill.amount, eurosToCents(expectedAmount));
   assert.equal(bill.BillSaleDetails.length, 1);
   assert.equal(bill.BillSaleDetails[0].foodName, food.name);
   assert.equal(bill.BillSaleDetails[0].foodSizeName, size.name);
-  assert.equal(bill.BillSaleDetails[0].price, food.price);
-  assert.equal(bill.BillSaleDetails[0].moneyAdded, size.moneyAdded);
+  assert.equal(bill.BillSaleDetails[0].price, eurosToCents(food.price));
+  assert.equal(
+    bill.BillSaleDetails[0].moneyAdded,
+    eurosToCents(size.moneyAdded),
+  );
   const order = await prisma.order.findFirst({
     where: { billSaleId: bill.id },
     include: {
@@ -566,7 +571,7 @@ test("checkout ignores forged authority and finalizes only the authenticated sel
   assert.equal(order.status, "CONFIRMED");
   assert.ok(order.paidAt);
   assert.equal(order.createdByUserId, owner.id);
-  assert.equal(order.total, expectedAmount);
+  assert.equal(order.total, eurosToCents(expectedAmount));
   assert.equal(order.Items.length, 1);
   assert.equal(order.Items[0].Modifiers[0].foodSizeId, size.id);
   assert.deepEqual(
@@ -1087,7 +1092,7 @@ test("browser draft checkout rejects a changed quote and atomically replays one 
   };
   await prisma.food.update({
     where: { id: food.id },
-    data: { price: food.price + 3 },
+    data: { price: eurosToCents(food.price + 3) },
   });
   try {
     const forged = await checkoutDraft({ ...body, amount: 1 });
@@ -1116,8 +1121,11 @@ test("browser draft checkout rejects a changed quote and atomically replays one 
       where: { id: first.payload.billId },
       include: { BillSaleDetails: true, Orders: true },
     });
-    assert.equal(bill.BillSaleDetails[0].price, food.price + 3);
-    assert.equal(bill.BillSaleDetails[0].moneyAdded, size.moneyAdded);
+    assert.equal(bill.BillSaleDetails[0].price, eurosToCents(food.price + 3));
+    assert.equal(
+      bill.BillSaleDetails[0].moneyAdded,
+      eurosToCents(size.moneyAdded),
+    );
     assert.equal(bill.BillSaleDetails[0].foodSizeId, size.id);
     assert.equal(bill.BillSaleDetails[0].tastedId, fixture.taste.id);
     assert.equal(bill.Orders[0].status, "CONFIRMED");
@@ -1135,7 +1143,7 @@ test("browser draft checkout rejects a changed quote and atomically replays one 
   } finally {
     await prisma.food.update({
       where: { id: food.id },
-      data: { price: food.price },
+      data: { price: eurosToCents(food.price) },
     });
   }
 });

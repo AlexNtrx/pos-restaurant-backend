@@ -1,3 +1,4 @@
+const { sendMoney } = require("../lib/money-dto");
 const writes = require("../lib/size-write-service");
 const { CatalogWriteError } = require("../lib/catalog-write-error");
 const prisma = require("../lib/prisma");
@@ -43,7 +44,7 @@ module.exports = {
         where: { status: "use" },
         orderBy: { id: "desc" },
       });
-      return res.send({ results: rows });
+      return sendMoney(res, { results: rows });
     } catch {
       return res.status(500).send({ error: "Unable to list food sizes" });
     }
@@ -57,7 +58,7 @@ module.exports = {
         params: req.params,
         user: req.user,
       });
-      return res.send(result);
+      return sendMoney(res, result);
     } catch (error) {
       if (error instanceof CatalogWriteError)
         return res.status(error.status).send(error.body);
@@ -74,7 +75,7 @@ module.exports = {
         params: req.params,
         user: req.user,
       });
-      return res.send(result);
+      return sendMoney(res, result);
     } catch (error) {
       if (error instanceof CatalogWriteError)
         return res.status(error.status).send(error.body);

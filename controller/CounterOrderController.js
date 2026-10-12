@@ -1,3 +1,4 @@
+const { sendMoney } = require("../lib/money-dto");
 const reads = require("../lib/counter-read-service");
 const { ReceiptReadError } = require("../lib/receipt-read-error");
 const prisma = require("../lib/prisma");
@@ -37,7 +38,7 @@ module.exports = {
   quote: async (req, res) => {
     try {
       const { snapshot } = await quoteCounterDraft(prisma, req.body);
-      return res.send({ results: snapshot });
+      return sendMoney(res, { results: snapshot });
     } catch (error) {
       return sendError(res, error);
     }
@@ -49,7 +50,7 @@ module.exports = {
         params: req.params,
         user: req.user,
       });
-      return res.send(result);
+      return sendMoney(res, result);
     } catch (error) {
       if (error instanceof ReceiptReadError)
         return res.status(error.status).send(error.body);
@@ -65,7 +66,7 @@ module.exports = {
         idempotencyKey: req.body?.idempotencyKey,
         intent,
       });
-      return res.send({
+      return sendMoney(res, {
         orderId: order.id,
         status: order.status,
         total: order.total,
@@ -95,7 +96,7 @@ module.exports = {
         payType,
         inputMoney,
       });
-      return res.send({
+      return sendMoney(res, {
         message: "success",
         billId: bill.id,
         amount: bill.amount,
@@ -156,7 +157,7 @@ module.exports = {
         serviceType: req.query.serviceType ?? "DINE_IN",
         view: req.query.view ?? "all",
       });
-      return res.send({ results });
+      return sendMoney(res, { results });
     } catch (error) {
       return sendError(res, error);
     }
@@ -168,7 +169,9 @@ module.exports = {
         actor: actorFor(req),
         orderId: Number(req.params.id),
       });
-      return res.send({ result: staffOrderDto(order, { history: true }) });
+      return sendMoney(res, {
+        result: staffOrderDto(order, { history: true }),
+      });
     } catch (error) {
       return sendError(res, error);
     }
@@ -192,7 +195,9 @@ module.exports = {
         expectedVersion: body.expectedVersion,
         reason: body.reason,
       });
-      return res.send({ result: staffOrderDto(order, { history: true }) });
+      return sendMoney(res, {
+        result: staffOrderDto(order, { history: true }),
+      });
     } catch (error) {
       return sendError(res, error);
     }
@@ -208,7 +213,7 @@ module.exports = {
         payType: body.payType,
         inputMoney: body.inputMoney,
       });
-      return res.send({
+      return sendMoney(res, {
         message: "success",
         billId: bill.id,
         amount: bill.amount,

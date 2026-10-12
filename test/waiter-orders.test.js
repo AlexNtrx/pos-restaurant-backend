@@ -8,6 +8,8 @@ const {
   headersFor,
   createTestFixture,
   cleanupTestFixture,
+  beginOrganizationFixture,
+  restoreOrganizationFixture,
 } = require("./helpers");
 const {
   checkoutCounterDraft,
@@ -28,9 +30,11 @@ const request = (path, method = "GET", body, actor = waiter) =>
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
+let organizationFixture;
 before(async () => {
   ({ server, apiBaseUrl } = await startApiServer());
   fixture = await createTestFixture();
+  organizationFixture = await beginOrganizationFixture();
   waiter = await prisma.user.update({
     where: { id: fixture.user.id },
     data: { level: "waiter" },
@@ -49,6 +53,7 @@ after(async () => {
     await prisma.restaurantTable.delete({ where: { id: table.id } });
   }
   await stopApiServer(server);
+  await restoreOrganizationFixture(organizationFixture);
   await cleanupTestFixture(fixture);
   await prisma.$disconnect();
 });

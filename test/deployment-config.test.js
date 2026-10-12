@@ -142,12 +142,15 @@ test("legacy password maintenance refuses remote databases even without the prod
   assert.match(result.stderr, /local development or disposable test database/);
 });
 
-test("production HTTP setup handles CORS preflight, readiness and connection failure without real DB access", async () => {
+test("production HTTP setup guards money storage, CORS, readiness and connection failure without real DB access", async (t) => {
   const previousEnv = { ...process.env };
   const prismaPath = require.resolve("../lib/prisma");
   const previousPrisma = require.cache[prismaPath];
   let connected = false;
   let failDatabase = false;
+  const readyMoney = [{ unit: "EUR_CENTS", version: 1 }];
+  let moneyRows = readyMoney;
+  let failMoneyQuery = false;
   const prisma = {
     async $connect() {
       if (failDatabase) throw new Error("fixture failure");
@@ -158,6 +161,10 @@ test("production HTTP setup handles CORS preflight, readiness and connection fai
       if (failDatabase) throw new Error("fixture failure");
       return [{ value: 1 }];
     },
+    async $queryRawUnsafe() {
+      if (failMoneyQuery) throw new Error("fixture money query failure");
+      return moneyRows;
+    },
   };
   require.cache[prismaPath] = {
     id: prismaPath,
@@ -167,8 +174,84 @@ test("production HTTP setup handles CORS preflight, readiness and connection fai
   };
   Object.assign(process.env, productionEnv());
   let server;
+  const servers = new Set();
   try {
     const { app, startServer } = require("../server");
+    const originalListen = app.listen;
+    const listen = t.mock.method(app, "listen", function (...args) {
+      const httpServer = originalListen.apply(this, args);
+      servers.add(httpServer);
+      return httpServer;
+    });
+    // EN: Invalid storage must prevent a listener, even when the database connection itself succeeds.
+    // FI: Virheellisen rahasäilön on estettävä kuuntelu, vaikka tietokantayhteys itsessään toimii.
+    const invalidMoney = [
+      { name: "missing marker", rows: [] },
+      { name: "legacy EUR unit", rows: [{ unit: "EUR", version: 1 }] },
+      {
+        name: "unsupported version",
+        rows: [{ unit: "EUR_CENTS", version: 2 }],
+      },
+      { name: "duplicate markers", rows: [...readyMoney, ...readyMoney] },
+      { name: "marker query failure", rows: readyMoney, queryFails: true },
+    ];
+    for (const scenario of invalidMoney) {
+      await t.test(
+        `startup refuses ${scenario.name} before listening`,
+        async () => {
+          moneyRows = scenario.rows;
+          failMoneyQuery = Boolean(scenario.queryFails);
+          await assert.rejects(
+            startServer(0),
+            scenario.queryFails
+              ? /fixture money query failure/
+              : /Incompatible money storage/,
+          );
+          assert.equal(connected, true);
+          assert.equal(listen.mock.callCount(), 0);
+        },
+      );
+    }
+    // EN: Embedded servers must reject health/API traffic too; recovering the marker must clear failed readiness.
+    // FI: Myös upotettujen palvelinten on hylättävä health/API-liikenne; rahamerkin korjaamisen on poistettava epäonnistunut valmiustila.
+    const probe = app.listen(0, "127.0.0.1");
+    await new Promise((resolve, reject) => {
+      probe.once("listening", resolve);
+      probe.once("error", reject);
+    });
+    const probeOrigin = `http://127.0.0.1:${probe.address().port}`;
+    for (const scenario of invalidMoney) {
+      await t.test(
+        `embedded HTTP refuses ${scenario.name} without leaking details`,
+        async () => {
+          moneyRows = scenario.rows;
+          failMoneyQuery = Boolean(scenario.queryFails);
+          const health = await fetch(`${probeOrigin}/health`);
+          assert.equal(health.status, 503);
+          assert.deepEqual(await health.json(), { status: "unavailable" });
+          const api = await fetch(
+            `${probeOrigin}/api/release-money-guard-probe`,
+          );
+          assert.equal(api.status, 503);
+          assert.deepEqual(await api.json(), {
+            error: "Money storage is not ready",
+          });
+        },
+      );
+    }
+    moneyRows = readyMoney;
+    failMoneyQuery = false;
+    await t.test(
+      "readiness recovers after the money marker becomes valid",
+      async () => {
+        const health = await fetch(`${probeOrigin}/health`);
+        assert.equal(health.status, 200);
+        assert.deepEqual(await health.json(), { status: "ok" });
+        const api = await fetch(`${probeOrigin}/api/release-money-guard-probe`);
+        assert.equal(api.status, 404);
+      },
+    );
+    await new Promise((resolve) => probe.close(resolve));
     server = await startServer(0);
     assert.equal(connected, true);
     const origin = `http://127.0.0.1:${server.address().port}`;
@@ -203,7 +286,9 @@ test("production HTTP setup handles CORS preflight, readiness and connection fai
     await assert.rejects(startServer(0), /fixture failure/);
     assert.ok(app);
   } finally {
-    if (server) await new Promise((resolve) => server.close(resolve));
+    for (const httpServer of servers)
+      if (httpServer.listening)
+        await new Promise((resolve) => httpServer.close(resolve));
     process.env = previousEnv;
     if (previousPrisma) require.cache[prismaPath] = previousPrisma;
     else delete require.cache[prismaPath];

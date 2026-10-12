@@ -1,10 +1,13 @@
 const { before, after, test } = require("node:test");
 const assert = require("node:assert/strict");
+const { centsToEuros } = require("../lib/money");
 const { randomUUID } = require("node:crypto");
 const {
   prisma,
   createTestFixture,
   cleanupTestFixture,
+  beginOrganizationFixture,
+  restoreOrganizationFixture,
   startApiServer,
   stopApiServer,
   headersFor,
@@ -20,12 +23,15 @@ const actor = () => ({
   userId: fixture.admin.id,
   level: "admin",
 });
+let organizationFixture;
 before(async () => {
   fixture = await createTestFixture();
+  organizationFixture = await beginOrganizationFixture();
   api = await startApiServer();
 });
 after(async () => {
   await stopApiServer(api?.server);
+  await restoreOrganizationFixture(organizationFixture);
   await cleanupTestFixture(fixture);
   await prisma.$disconnect();
 });
@@ -111,7 +117,7 @@ test("refund reservation freezes kitchen, keeps payment, and manual completion i
   );
   assert.equal(
     (await prisma.billSale.findUnique({ where: { id: bill.id } })).amount,
-    20,
+    2000n,
   );
   await assert.rejects(
     finishRefund(prisma, {
@@ -258,7 +264,10 @@ test("sales reports retain pending payments and deduct only confirmed refunds wi
       reference: "Bank reconciliation 456",
     },
   });
-  assert.equal((await report()).totalAmount, before.totalAmount - bill.amount);
+  assert.equal(
+    (await report()).totalAmount,
+    before.totalAmount - centsToEuros(bill.amount),
+  );
   assert.deepEqual(
     await prisma.billSaleDetail.findMany({
       where: { billSaleId: bill.id },

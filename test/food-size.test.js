@@ -119,7 +119,7 @@ test("food sizes reject active duplicates and preserve complete edit fields", as
       remark: updated.remark,
       moneyAdded: updated.moneyAdded,
     },
-    { foodTypeId: category.id, remark: "Updated", moneyAdded: 9 },
+    { foodTypeId: category.id, remark: "Updated", moneyAdded: 900n },
   );
 });
 

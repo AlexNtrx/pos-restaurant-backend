@@ -3,6 +3,7 @@ const { randomUUID } = require("node:crypto");
 const jwt = require("jsonwebtoken");
 const { PrismaClient } = require("@prisma/client");
 const { hashPassword } = require("../lib/password");
+const { moneyDto } = require("../lib/money-dto");
 
 const prisma = new PrismaClient();
 
@@ -75,7 +76,7 @@ const createTestFixture = async () => {
       data: {
         name: `${marker}-size`,
         remark: "",
-        moneyAdded: 5,
+        moneyAdded: 500n,
         foodTypeId: category.id,
         status: "use",
       },
@@ -84,7 +85,7 @@ const createTestFixture = async () => {
       data: {
         name: `${marker}-inactive-size`,
         remark: "",
-        moneyAdded: 9,
+        moneyAdded: 900n,
         foodTypeId: otherCategory.id,
         status: "delete",
       },
@@ -109,7 +110,7 @@ const createTestFixture = async () => {
       data: {
         name: `${marker}-food`,
         remark: "",
-        price: 20,
+        price: 2000n,
         img: "",
         foodType: "food",
         foodTypeId: category.id,
@@ -123,11 +124,13 @@ const createTestFixture = async () => {
     user,
     category,
     otherCategory,
-    size,
-    inactiveSize,
+    // EN: Shared fixture catalog values represent the EUR API; persistence assertions read cents directly from Prisma.
+    // FI: Yhteisten testitietojen luetteloarvot kuvaavat euro-API:a; tallennusväitteet lukevat senttiarvot suoraan Prismasta.
+    size: moneyDto(size),
+    inactiveSize: moneyDto(inactiveSize),
     taste,
     inactiveTaste,
-    food,
+    food: moneyDto(food),
   };
 };
 
@@ -190,8 +193,27 @@ const beginOrganizationFixture = async () => {
   const original = await prisma.organization.findFirst({
     orderBy: { id: "asc" },
   });
-  if (original)
-    await prisma.organization.delete({ where: { id: original.id } });
+  // EN: Preserve the original control/history while isolated singleton fixtures temporarily replace the restaurant.
+  // FI: Säilytä alkuperäinen ohjaustila ja historia, kun eristetyt testit korvaavat ravintolan väliaikaisesti.
+  let originalControl = null;
+  let originalControlEvents = [];
+  if (original) {
+    await prisma.$transaction(async (tx) => {
+      originalControl = await tx.organizationTaxControl.findUnique({
+        where: { organizationId: original.id },
+      });
+      originalControlEvents = await tx.taxControlEvent.findMany({
+        where: { organizationId: original.id },
+      });
+      await tx.taxControlEvent.deleteMany({
+        where: { organizationId: original.id },
+      });
+      await tx.organizationTaxControl.deleteMany({
+        where: { organizationId: original.id },
+      });
+      await tx.organization.delete({ where: { id: original.id } });
+    });
+  }
   const marker = `test-${randomUUID()}`;
   const organization = await prisma.organization.create({
     data: {
@@ -205,17 +227,29 @@ const beginOrganizationFixture = async () => {
       taxCode: "TEST",
     },
   });
-  return { organization, original };
+  return { organization, original, originalControl, originalControlEvents };
 };
 
 // Coordinates restore organization fixture behavior for this module.
 const restoreOrganizationFixture = async (fixture) => {
   if (!fixture) return;
-  await prisma.organization
-    .delete({ where: { id: fixture.organization.id } })
-    .catch(() => undefined);
-  if (fixture.original)
-    await prisma.organization.create({ data: fixture.original });
+  await prisma.$transaction(async (tx) => {
+    const organizationId = fixture.organization.id;
+    await tx.taxControlEvent.deleteMany({ where: { organizationId } });
+    await tx.organizationTaxControl.deleteMany({ where: { organizationId } });
+    await tx.organization.deleteMany({ where: { id: organizationId } });
+    if (fixture.original) {
+      await tx.organization.create({ data: fixture.original });
+      if (fixture.originalControl)
+        await tx.organizationTaxControl.create({
+          data: fixture.originalControl,
+        });
+      if (fixture.originalControlEvents?.length)
+        await tx.taxControlEvent.createMany({
+          data: fixture.originalControlEvents,
+        });
+    }
+  });
 };
 
 module.exports = {

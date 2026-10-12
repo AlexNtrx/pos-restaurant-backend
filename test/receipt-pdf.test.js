@@ -19,13 +19,13 @@ const receipt = {
       foodName: "Test food",
       foodSizeName: null,
       tasteName: null,
-      price: 20,
-      moneyAdded: 0,
+      price: 2000n,
+      moneyAdded: 0n,
     },
   ],
-  amount: 20,
-  inputMoney: 20,
-  returnMoney: 0,
+  amount: 2000n,
+  inputMoney: 2000n,
+  returnMoney: 0n,
   payType: "cash",
 };
 
@@ -50,8 +50,8 @@ test("long receipt snapshots fit on one narrow page without changing stored valu
       "Pitkään haudutettu suomalainen naudanlihapata perunoiden ja kauden kasvisten kera",
     foodSizeName: "Suuri annos kahdelle hengelle",
     tasteName: "Gluteeniton, ilman sipulia, kastike erillisessä astiassa",
-    price: 20,
-    moneyAdded: 3,
+    price: 2000n,
+    moneyAdded: 300n,
   });
   const lines = Object.freeze(
     Array.from({ length: 30 }, (_, index) =>
@@ -63,15 +63,22 @@ test("long receipt snapshots fit on one narrow page without changing stored valu
       ...receipt,
       lines,
       payType,
-      amount: 690,
-      inputMoney: 700,
-      returnMoney: 10,
+      amount: 69000n,
+      inputMoney: 70000n,
+      returnMoney: 1000n,
     });
-    const before = JSON.stringify(snapshot);
+    const before = JSON.stringify(snapshot, (_key, value) =>
+      typeof value === "bigint" ? value.toString() : value,
+    );
     const pdf = await renderReceiptPdf(organization, snapshot);
     const source = pdf.toString("latin1");
     assert.equal((source.match(/\/Type \/Page\b/g) ?? []).length, 1);
     assert.match(source, /\/MediaBox \[0 0 226\.77 /);
-    assert.equal(JSON.stringify(snapshot), before);
+    assert.equal(
+      JSON.stringify(snapshot, (_key, value) =>
+        typeof value === "bigint" ? value.toString() : value,
+      ),
+      before,
+    );
   }
 });

@@ -1,3 +1,5 @@
+const { moneyDto } = require("../lib/money-dto");
+const { eurosToCents, centsToEuros } = require("../lib/money");
 const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
@@ -8,6 +10,8 @@ const {
   headersFor,
   createTestFixture,
   cleanupTestFixture,
+  beginOrganizationFixture,
+  restoreOrganizationFixture,
 } = require("./helpers");
 const { submitOrder, transitionOrder } = require("../lib/order-service");
 const { rotateToken, resolveQrAccess } = require("../lib/table-service");
@@ -58,7 +62,7 @@ const qrOrder = async ({ table, session }, status = "SERVED") => {
       nextStatus,
     });
   }
-  return order;
+  return moneyDto(order);
 };
 const pay = (sessionId, orders, options = {}) =>
   request(`/table-sessions/${sessionId}/settle`, {
@@ -68,12 +72,15 @@ const pay = (sessionId, orders, options = {}) =>
     ...(options.inputMoney == null ? {} : { inputMoney: options.inputMoney }),
   });
 
+let organizationFixture;
 before(async () => {
   ({ server, apiBaseUrl } = await startApiServer());
   fixture = await createTestFixture();
+  organizationFixture = await beginOrganizationFixture();
 });
 after(async () => {
   await stopApiServer(server);
+  await restoreOrganizationFixture(organizationFixture);
   await cleanupTestFixture(fixture);
   await prisma.serviceCall.deleteMany({
     where: { TableSession: { restaurantTableId: { in: tableIds } } },
@@ -171,7 +178,7 @@ test("session payment combines orders once, closes session, revokes QR and repla
   });
   assert.equal(bill.Orders.length, 2);
   assert.equal(bill.BillSaleDetails.length, 4);
-  assert.equal(bill.amount, first.total + second.total);
+  assert.equal(bill.amount, eurosToCents(first.total + second.total));
   assert.ok(bill.Orders.every((order) => order.status === "COMPLETED"));
   for (const order of bill.Orders) {
     const response = await fetch(`${apiBaseUrl}/orders/${order.id}`, {
@@ -180,7 +187,7 @@ test("session payment combines orders once, closes session, revokes QR and repla
     assert.equal(response.status, 200);
     assert.deepEqual((await response.json()).result.receipt, {
       billId: paid.billId,
-      amount: bill.amount,
+      amount: centsToEuros(bill.amount),
       status: "use",
       orderCount: 2,
     });

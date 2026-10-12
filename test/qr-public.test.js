@@ -1,3 +1,4 @@
+const { centsToEuros } = require("../lib/money");
 const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
@@ -7,12 +8,15 @@ const {
   stopApiServer,
   createTestFixture,
   cleanupTestFixture,
+  headersFor,
 } = require("./helpers");
 const { openSession, rotateToken } = require("../lib/table-service");
+const { submitOrder } = require("../lib/order-service");
 
 let server;
 let apiBaseUrl;
 let fixture;
+let kitchen;
 let originalPolicy;
 const tableIds = [];
 
@@ -37,6 +41,15 @@ const makeTable = async () => {
 before(async () => {
   ({ server, apiBaseUrl } = await startApiServer());
   fixture = await createTestFixture();
+  kitchen = await prisma.user.create({
+    data: {
+      name: `${fixture.marker}-kitchen`,
+      username: `${fixture.marker}-kitchen`,
+      password: fixture.admin.password,
+      level: "kitchen",
+      status: "use",
+    },
+  });
   originalPolicy = await prisma.qrPolicy.findUnique({ where: { id: 1 } });
   await prisma.qrPolicy.upsert({
     where: { id: 1 },
@@ -60,6 +73,7 @@ after(async () => {
     });
   else await prisma.qrPolicy.deleteMany({ where: { id: 1 } });
   await stopApiServer(server);
+  if (kitchen) await prisma.user.delete({ where: { id: kitchen.id } });
   await cleanupTestFixture(fixture);
 });
 
@@ -112,6 +126,17 @@ test("anonymous QR menu, bounded submit, idempotent retry and scoped status", as
   });
   assert.equal(forgedTable.status, 400);
   assert.equal((await forgedTable.json()).code, "INVALID_INPUT");
+  for (const override of [
+    { status: "CONFIRMED" },
+    { confirmForKitchen: true },
+  ]) {
+    const forgedStatus = await request(`/qr/${token}/orders`, "POST", {
+      ...body,
+      ...override,
+    });
+    assert.equal(forgedStatus.status, 400);
+    assert.equal((await forgedStatus.json()).code, "INVALID_INPUT");
+  }
   const forgedFood = await request(`/qr/${token}/orders`, "POST", {
     ...body,
     items: [{ foodId: 999999, quantity: 1 }],
@@ -124,10 +149,14 @@ test("anonymous QR menu, bounded submit, idempotent retry and scoped status", as
   });
   assert.equal(wrongTotal.status, 409);
   assert.equal((await wrongTotal.json()).code, "QUOTE_CHANGED");
+  assert.equal(
+    await prisma.order.count({ where: { tableSessionId: access.session.id } }),
+    0,
+  );
   const first = await request(`/qr/${token}/orders`, "POST", body);
   assert.equal(first.status, 201);
   const { result } = await first.json();
-  assert.equal(result.status, "SUBMITTED");
+  assert.equal(result.status, "CONFIRMED");
   assert.equal(result.total, 25);
   const replay = await request(`/qr/${token}/orders`, "POST", body);
   assert.equal((await replay.json()).result.orderId, result.orderId);
@@ -136,7 +165,56 @@ test("anonymous QR menu, bounded submit, idempotent retry and scoped status", as
   const order = (await status.json()).result;
   assert.equal(order.items[0].note, "Ei chiliä");
   assert.equal(order.items[0].lineTotal, 25);
-  assert.equal(order.history[0].status, "SUBMITTED");
+  assert.equal(order.status, "CONFIRMED");
+  assert.deepEqual(
+    order.history.map((event) => event.status),
+    ["SUBMITTED", "CONFIRMED"],
+  );
+  const persisted = await prisma.order.findUnique({
+    where: { id: result.orderId },
+    include: { StatusHistory: { orderBy: { version: "asc" } } },
+  });
+  assert.equal(persisted.version, 2);
+  assert.ok(persisted.confirmedAt);
+  assert.equal(persisted.createdByUserId, null);
+  assert.deepEqual(
+    persisted.StatusHistory.map((event) => [
+      event.actorType,
+      event.actorUserId,
+    ]),
+    [
+      ["CUSTOMER", null],
+      ["CUSTOMER", null],
+    ],
+  );
+  const board = await fetch(`${apiBaseUrl}/orders?status=CONFIRMED`, {
+    headers: headersFor(kitchen),
+  });
+  assert.equal(board.status, 200);
+  assert.ok(
+    (await board.json()).results.some((row) => row.id === result.orderId),
+  );
+  const inbox = await fetch(`${apiBaseUrl}/orders?status=SUBMITTED`, {
+    headers: headersFor(fixture.admin),
+  });
+  assert.equal(inbox.status, 200);
+  assert.ok(
+    !(await inbox.json()).results.some((row) => row.id === result.orderId),
+  );
+  const start = await fetch(
+    `${apiBaseUrl}/kitchen/orders/${result.orderId}/status`,
+    {
+      method: "PATCH",
+      headers: headersFor(kitchen),
+      body: JSON.stringify({ expectedVersion: 2, nextStatus: "PREPARING" }),
+    },
+  );
+  assert.equal(start.status, 200);
+  assert.equal((await start.json()).result.status, "PREPARING");
+  const customerStatus = await request(`/qr/${token}/orders/${result.orderId}`);
+  assert.equal((await customerStatus.json()).result.status, "PREPARING");
+  const retryAfterStart = await request(`/qr/${token}/orders`, "POST", body);
+  assert.equal((await retryAfterStart.json()).result.status, "PREPARING");
   const conflict = await request(`/qr/${token}/orders`, "POST", {
     ...body,
     items: [{ ...body.items[0], quantity: 2 }],
@@ -238,6 +316,16 @@ test("concurrent identical public retries persist only one QR Order", async () =
     (await second.json()).result.orderId,
   ];
   assert.equal(ids[0], ids[1]);
+  const order = await prisma.order.findUnique({
+    where: { id: ids[0] },
+    include: { StatusHistory: { orderBy: { version: "asc" } } },
+  });
+  assert.equal(order.status, "CONFIRMED");
+  assert.equal(order.version, 2);
+  assert.deepEqual(
+    order.StatusHistory.map((event) => event.toStatus),
+    ["SUBMITTED", "CONFIRMED"],
+  );
   assert.equal(
     await prisma.order.count({
       where: {
@@ -245,6 +333,36 @@ test("concurrent identical public retries persist only one QR Order", async () =
         idempotencyKey: body.idempotencyKey,
       },
     }),
+    1,
+  );
+});
+
+test("replaying an older submitted QR order preserves its status and history", async () => {
+  const { table, access } = await makeTable();
+  const body = {
+    idempotencyKey: randomUUID(),
+    items: [{ foodId: fixture.food.id, quantity: 1 }],
+  };
+  const legacy = await submitOrder(prisma, {
+    actor: { type: "CUSTOMER" },
+    idempotencyKey: body.idempotencyKey,
+    intent: {
+      channel: "QR",
+      tableNo: table.tableNo,
+      tableSessionId: access.session.id,
+      items: body.items,
+    },
+  });
+  assert.equal(legacy.status, "SUBMITTED");
+  const response = await request(`/qr/${access.token}/orders`, "POST", body);
+  assert.equal(response.status, 201);
+  assert.deepEqual((await response.json()).result, {
+    orderId: legacy.id,
+    status: "SUBMITTED",
+    total: centsToEuros(legacy.total),
+  });
+  assert.equal(
+    await prisma.orderStatusHistory.count({ where: { orderId: legacy.id } }),
     1,
   );
 });

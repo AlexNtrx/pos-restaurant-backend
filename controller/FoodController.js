@@ -1,3 +1,4 @@
+const { sendMoney } = require("../lib/money-dto");
 const writes = require("../lib/food-write-service");
 const { CatalogWriteError } = require("../lib/catalog-write-error");
 const prisma = require("../lib/prisma");
@@ -66,7 +67,7 @@ module.exports = {
         where: { status: "use" },
         orderBy: { id: "desc" },
       });
-      return res.send({ results: foods });
+      return sendMoney(res, { results: foods });
     } catch {
       return res.status(500).send({ error: "Unable to list foods" });
     }
@@ -76,7 +77,7 @@ module.exports = {
     const filters = parseFoodPageQuery(req.query);
     if (filters.error) return res.status(400).send({ error: filters.error });
     try {
-      return res.send(await readFoodPage(prisma, filters));
+      return sendMoney(res, await readFoodPage(prisma, filters));
     } catch {
       return res.status(500).send({ error: "Unable to list foods" });
     }
@@ -90,7 +91,7 @@ module.exports = {
         params: req.params,
         user: req.user,
       });
-      return res.send(result);
+      return sendMoney(res, result);
     } catch (error) {
       if (error instanceof CatalogWriteError)
         return res.status(error.status).send(error.body);
@@ -107,7 +108,7 @@ module.exports = {
         params: req.params,
         user: req.user,
       });
-      return res.send(result);
+      return sendMoney(res, result);
     } catch (error) {
       if (error instanceof CatalogWriteError)
         return res.status(error.status).send(error.body);
@@ -130,7 +131,7 @@ module.exports = {
         include: { FoodType: true },
         orderBy: { id: "desc" },
       });
-      return res.send({ results: foods });
+      return sendMoney(res, { results: foods });
     } catch {
       return res.status(500).send({ error: "Internal server error" });
     }

@@ -1,3 +1,4 @@
+const { sendMoney } = require("../lib/money-dto");
 const prisma = require("../lib/prisma");
 const { OrderDomainError } = require("../lib/order-domain");
 const { changeKitchenStatus } = require("../lib/kitchen-order-service");
@@ -14,7 +15,7 @@ const changeStatus = async (req, res) => {
       orderId: req.params.orderId,
       body: req.body,
     });
-    return res.send({ result });
+    return sendMoney(res, { result });
   } catch (error) {
     if (error instanceof OrderDomainError)
       return res

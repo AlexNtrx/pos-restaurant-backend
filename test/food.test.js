@@ -123,7 +123,7 @@ test("food CRUD validates active category and preserves the requested image name
     },
     {
       remark: "Updated",
-      price: 30,
+      price: 3000n,
       img: "",
       detailImg: "menu-details.png",
       foodType: "drink",

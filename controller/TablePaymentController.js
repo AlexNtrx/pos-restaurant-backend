@@ -1,3 +1,4 @@
+const { sendMoney } = require("../lib/money-dto");
 const prisma = require("../lib/prisma");
 const { OrderDomainError } = require("../lib/order-domain");
 const { payTableSession } = require("../lib/table-payment-service");
@@ -14,7 +15,7 @@ const settle = async (req, res) => {
       sessionId: req.params.sessionId,
       body: req.body,
     });
-    return res.send({
+    return sendMoney(res, {
       message: "success",
       billId: bill.id,
       amount: bill.amount,
