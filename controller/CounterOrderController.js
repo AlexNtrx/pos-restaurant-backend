@@ -11,6 +11,7 @@ const {
   cancelSentCounterOrder,
   checkoutCounterDraft,
   getSentCounterOrder,
+  getCounterReadySummary,
   listSentCounterOrders,
   quoteCounterDraft,
   replayCounterKitchenSubmission,
@@ -145,6 +146,16 @@ module.exports = {
     } catch (error) {
       if (error instanceof ReceiptReadError)
         return res.status(error.status).send(error.body);
+      return sendError(res, error);
+    }
+  },
+  readySummary: async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      return res.send({
+        result: await getCounterReadySummary(prisma, { actor: actorFor(req) }),
+      });
+    } catch (error) {
       return sendError(res, error);
     }
   },

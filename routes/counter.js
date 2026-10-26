@@ -40,6 +40,12 @@ module.exports = function registerCounterRoutes(app) {
     CounterOrderController.listSent,
   );
   app.get(
+    "/api/counterOrder/ready-summary",
+    isAuthen,
+    isStaff,
+    CounterOrderController.readySummary,
+  );
+  app.get(
     "/api/counterOrder/:id",
     isAuthen,
     isStaff,
