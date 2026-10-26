@@ -1,6 +1,36 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { authorizeTransition } = require("../lib/order-domain");
+
+test("kitchen can prepare and ready, while only service roles can serve", () => {
+  const actor = { type: "STAFF", userId: 1, level: "kitchen" };
+  for (const [currentStatus, nextStatus] of [
+    ["CONFIRMED", "PREPARING"],
+    ["PREPARING", "READY"],
+  ])
+    assert.equal(
+      authorizeTransition({ actor, currentStatus, nextStatus }),
+      null,
+    );
+  assert.throws(
+    () =>
+      authorizeTransition({
+        actor,
+        currentStatus: "READY",
+        nextStatus: "SERVED",
+      }),
+    (error) => error.status === 403 && error.code === "FORBIDDEN",
+  );
+  for (const level of ["admin", "kassa", "waiter"])
+    assert.equal(
+      authorizeTransition({
+        actor: { ...actor, level },
+        currentStatus: "READY",
+        nextStatus: "SERVED",
+      }),
+      null,
+    );
+});
 test("every staff role is blocked from cancellation after kitchen start", () => {
   for (const level of ["admin", "kassa", "waiter", "kitchen"])
     for (const currentStatus of [
