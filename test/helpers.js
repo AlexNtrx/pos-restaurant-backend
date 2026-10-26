@@ -193,27 +193,8 @@ const beginOrganizationFixture = async () => {
   const original = await prisma.organization.findFirst({
     orderBy: { id: "asc" },
   });
-  // EN: Preserve the original control/history while isolated singleton fixtures temporarily replace the restaurant.
-  // FI: Säilytä alkuperäinen ohjaustila ja historia, kun eristetyt testit korvaavat ravintolan väliaikaisesti.
-  let originalControl = null;
-  let originalControlEvents = [];
-  if (original) {
-    await prisma.$transaction(async (tx) => {
-      originalControl = await tx.organizationTaxControl.findUnique({
-        where: { organizationId: original.id },
-      });
-      originalControlEvents = await tx.taxControlEvent.findMany({
-        where: { organizationId: original.id },
-      });
-      await tx.taxControlEvent.deleteMany({
-        where: { organizationId: original.id },
-      });
-      await tx.organizationTaxControl.deleteMany({
-        where: { organizationId: original.id },
-      });
-      await tx.organization.delete({ where: { id: original.id } });
-    });
-  }
+  if (original)
+    await prisma.organization.delete({ where: { id: original.id } });
   const marker = `test-${randomUUID()}`;
   const organization = await prisma.organization.create({
     data: {
@@ -227,29 +208,17 @@ const beginOrganizationFixture = async () => {
       taxCode: "TEST",
     },
   });
-  return { organization, original, originalControl, originalControlEvents };
+  return { organization, original };
 };
 
 // Coordinates restore organization fixture behavior for this module.
 const restoreOrganizationFixture = async (fixture) => {
   if (!fixture) return;
-  await prisma.$transaction(async (tx) => {
-    const organizationId = fixture.organization.id;
-    await tx.taxControlEvent.deleteMany({ where: { organizationId } });
-    await tx.organizationTaxControl.deleteMany({ where: { organizationId } });
-    await tx.organization.deleteMany({ where: { id: organizationId } });
-    if (fixture.original) {
-      await tx.organization.create({ data: fixture.original });
-      if (fixture.originalControl)
-        await tx.organizationTaxControl.create({
-          data: fixture.originalControl,
-        });
-      if (fixture.originalControlEvents?.length)
-        await tx.taxControlEvent.createMany({
-          data: fixture.originalControlEvents,
-        });
-    }
-  });
+  await prisma.organization
+    .delete({ where: { id: fixture.organization.id } })
+    .catch(() => undefined);
+  if (fixture.original)
+    await prisma.organization.create({ data: fixture.original });
 };
 
 module.exports = {

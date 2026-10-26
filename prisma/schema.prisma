@@ -110,104 +110,15 @@ model SaleTempDetail {
 }
 
 model Organization {
-  id                 Int                     @id() @default(autoincrement())
-  name               String
-  phone              String
-  address            String
-  email              String
-  website            String
-  bankNo             String
-  logo               String
-  taxCode            String
-  // EN: Editable admin draft only; payments do not consume this configuration.
-  // FI: Vain ylläpitäjän muokattava luonnos; maksut eivät käytä tätä määritystä.
-  taxSettingsDraft   Json?
-  taxSettingsVersion Int                     @default(0)
-  taxPolicyRevisions TaxPolicyRevision[]
-  taxPolicyApprovals TaxPolicyApproval[]
-  taxControl         OrganizationTaxControl?
-}
-
-// EN: Foundation metadata only; no payment guard or commercial activation consumes this state yet.
-// FI: Vain perustan metatiedot; maksusuojaus tai kaupallinen käyttöönotto ei vielä käytä tätä tilaa.
-model OrganizationTaxControl {
-  organizationId Int               @id
-  mode           String            @default("LEGACY")
-  generation     Int               @default(0)
-  version        Int               @default(1)
-  updatedAt      DateTime          @default(now()) @updatedAt
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  events         TaxControlEvent[]
-}
-
-model TaxControlEvent {
-  id                 Int                    @id @default(autoincrement())
-  organizationId     Int
-  schemaVersion      Int                    @default(1)
-  action             String
-  fromMode           String
-  toMode             String
-  fromGeneration     Int
-  toGeneration       Int
-  fromVersion        Int
-  toVersion          Int
-  reason             String
-  idempotencyKey     String
-  requestFingerprint String
-  recordedAt         DateTime               @default(now())
-  // EN: Historical actor copies have no User FK; foundation APIs never create, edit or delete events.
-  // FI: Historiallisilla tekijäkopioilla ei ole User-viitettä; perustan rajapinnat eivät luo, muokkaa tai poista tapahtumia.
-  recordedByUserId   Int
-  recordedByName     String
-  control            OrganizationTaxControl @relation(fields: [organizationId], references: [organizationId], onDelete: Restrict)
-
-  @@unique([organizationId, idempotencyKey])
-  @@unique([organizationId, toGeneration])
-  @@index([organizationId, id])
-}
-
-model TaxPolicyRevision {
-  id                 Int                 @id @default(autoincrement())
-  organizationId     Int
-  sourceDraftVersion Int
-  schemaVersion      Int                 @default(1)
-  configuration      Json
-  sellerSnapshot     Json
-  createdAt          DateTime            @default(now())
-  // EN: Historical actor identity is a copy without a User FK; application APIs never update or delete revisions.
-  // FI: Historiallinen tekijätieto on kopio ilman User-viitettä; sovellusrajapinnat eivät päivitä tai poista versioita.
-  createdByUserId    Int
-  createdByName      String
-  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  approvals          TaxPolicyApproval[]
-
-  @@unique([organizationId, sourceDraftVersion])
-  @@unique([organizationId, id])
-  @@index([organizationId, id])
-}
-
-model TaxPolicyApproval {
-  id                 Int               @id @default(autoincrement())
-  organizationId     Int
-  sourceRevisionId   Int
-  sourceDraftVersion Int
-  schemaVersion      Int               @default(1)
-  configuration      Json
-  sellerSnapshot     Json
-  reviewEvidence     Json
-  idempotencyKey     String
-  requestFingerprint String
-  recordedAt         DateTime          @default(now())
-  // EN: This immutable review record does not activate tax; historical actors have no User FK.
-  // FI: Tämä muuttumaton tarkistusmerkintä ei ota verotusta käyttöön; historiallisilla tekijöillä ei ole User-viitettä.
-  recordedByUserId   Int
-  recordedByName     String
-  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  sourceRevision     TaxPolicyRevision @relation(fields: [organizationId, sourceRevisionId], references: [organizationId, id], onDelete: Restrict, map: "TaxPolicyApproval_sourceRevision_fkey")
-
-  @@unique([organizationId, sourceRevisionId])
-  @@unique([organizationId, idempotencyKey])
-  @@index([organizationId, id])
+  id      Int    @id() @default(autoincrement())
+  name    String
+  phone   String
+  address String
+  email   String
+  website String
+  bankNo  String
+  logo    String
+  taxCode String
 }
 
 model BillSale {

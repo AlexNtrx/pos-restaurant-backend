@@ -31,8 +31,8 @@ module.exports = {
   info: async (_req, res) => {
     try {
       return res.send({
-        // EN: Keep the legacy settings response unchanged when internal tax draft columns are added.
-        // FI: Säilytä vanha asetusvastaus muuttumattomana, kun sisäiset veroluonnossarakkeet lisätään.
+        // EN: Return only the supported restaurant settings fields.
+        // FI: Palauta vain tuetut ravintolan asetuskentät.
         result: await prisma.organization.findFirst({
           orderBy: { id: "asc" },
           select: {
